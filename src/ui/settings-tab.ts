@@ -135,6 +135,19 @@ export class PeckListSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('Tag for tasks from this vault')
+			.setDesc(`Every task made from this vault gets this tag in PeckList, so you can find them all there. It isn't added to your notes. Empty for none. Default: obsidian/${this.app.vault.getName()}.`)
+			.addText((t) =>
+				t
+					.setPlaceholder('obsidian/vault-name')
+					.setValue(this.plugin.vaultTag() ?? '')
+					.onChange(async (value) => {
+						settings.vaultTag = value.trim();
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName('Link back to the note')
 			.setDesc('Put a link that opens the note in a new task\'s notes in PeckList.')
 			.addToggle((t) =>

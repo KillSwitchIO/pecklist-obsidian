@@ -3,7 +3,8 @@ import { ApiError, PeckListClient, normalizeServerUrl } from './api/client';
 import type { ApiList, ApiMe } from './api/types';
 import { isPeckListTag } from './core/lists';
 import { ObsidianVault, obsidianHttp } from './obsidian/adapters';
-import { DEFAULT_SETTINGS, type PeckListSettings } from './settings';
+import { markerDecoration } from './obsidian/marker-decoration';
+import { DEFAULT_SETTINGS, type PeckListSettings, effectiveVaultTag } from './settings';
 import { SetupError, SyncEngine, type SyncReport, type SyncState, emptyState } from './sync/engine';
 import { DeletionsModal } from './ui/deletions-modal';
 import { ReviewModal, type ReviewChoice } from './ui/review-modal';
@@ -34,6 +35,7 @@ export default class PeckListPlugin extends Plugin {
 		this.addCommand({ id: 'sync-now', name: 'Sync now', callback: () => void this.sync('manual') });
 		this.addCommand({ id: 'review', name: 'Review what syncs', callback: () => void this.openReview(false) });
 		this.addCommand({ id: 'sign-in', name: 'Sign in with browser', callback: () => this.openSignIn() });
+		this.registerEditorExtension(markerDecoration((id) => this.openTask(id)));
 
 		this.app.workspace.onLayoutReady(() => {
 			void this.readTasksGlobalFilter();
@@ -211,6 +213,20 @@ export default class PeckListPlugin extends Plugin {
 		}
 	}
 
+	/** Opens a linked task in PeckList's web app, in its list when this device knows it. */
+	private openTask(id: string): void {
+		if (!this.settings.serverUrl) return;
+		const state = this.app.loadLocalStorage(STATE_KEY) as SyncState | null;
+		const listId = state?.snaps[id]?.remote.listId;
+		const base = normalizeServerUrl(this.settings.serverUrl);
+		const query = `task=${encodeURIComponent(id)}&full=1`;
+		window.open(listId ? `${base}/lists/${encodeURIComponent(listId)}?${query}` : `${base}/today?${query}`);
+	}
+
+	vaultTag(): string | null {
+		return effectiveVaultTag(this.settings, this.app.vault.getName());
+	}
+
 	// --- Syncing ---
 
 	private setStatus(text: string): void {
@@ -224,6 +240,7 @@ export default class PeckListPlugin extends Plugin {
 			exclusions: { folders: this.settings.excludedFolders, notes: this.settings.excludedNotes },
 			ignoredTags: this.settings.ignoredTags ?? [],
 			addNoteLink: this.settings.addNoteLink,
+			vaultTag: this.vaultTag(),
 			save: (s) => this.saveState(s),
 		});
 	}
