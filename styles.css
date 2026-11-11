@@ -1,8 +1,61 @@
-/*
+/* PeckList: the review before the first sync, and the sign-in code. */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.pecklist-review-summary ul {
+	margin: 0 0 var(--size-4-2);
+	padding-inline-start: var(--size-4-5);
+}
 
-If your plugin does not need CSS, delete this file.
+.pecklist-review-tree {
+	max-height: 50vh;
+	overflow-y: auto;
+	border: var(--border-width) solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+}
 
-*/
+.pecklist-review-folder > summary {
+	cursor: pointer;
+	font-weight: var(--font-semibold);
+	padding: var(--size-2-2) 0;
+}
+
+.pecklist-review-folder-body {
+	padding-inline-start: var(--size-4-5);
+}
+
+.pecklist-review-note-head {
+	display: block;
+	padding: var(--size-2-2) 0;
+}
+
+.pecklist-review-lines {
+	padding-inline-start: var(--size-4-5);
+}
+
+.pecklist-review-line {
+	display: block;
+	padding: var(--size-2-1) 0;
+	color: var(--text-normal);
+}
+
+.pecklist-review-badge,
+.pecklist-review-note {
+	margin-inline-start: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pecklist-signin-code {
+	font-family: var(--font-monospace);
+	font-size: 2em;
+	letter-spacing: 0.1em;
+	text-align: center;
+	margin: var(--size-4-3) 0;
+	user-select: all;
+}
+
+.pecklist-held-list {
+	max-height: 40vh;
+	overflow-y: auto;
+}
