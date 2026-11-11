@@ -39,7 +39,7 @@ export default defineConfig(
 				'warn',
 				{
 					ignoreWords: ['PeckList', 'Tasks', 'Obsidian', 'API'],
-					ignoreRegex: ['#pecklist(/\\w+)?', 'https?://\\S+', '"[^"]+"'],
+					ignoreRegex: ['#pecklist(/\\w+)?', 'https?://\\S+', '"[^"]+"', 'obsidian/\\S*'],
 				},
 			],
 		},

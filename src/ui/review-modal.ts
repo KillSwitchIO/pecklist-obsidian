@@ -30,14 +30,40 @@ function folderOf(path: string): string {
 	return slash < 0 ? '' : path.slice(0, slash);
 }
 
+function lineKey(line: PreviewLine): string {
+	return `${line.path}\n${line.lineNo}`;
+}
+
 // A linked line is left out with its note or folder, or by taking its tag off (which trashes
-// the task), not here.
+// the task), not on its own.
 const SELECTABLE = new Set(['new', 'off']);
+
+interface FolderRow {
+	folder: string;
+	input: HTMLInputElement;
+	/** Left out by a parent folder in the settings: can't be ticked here. */
+	locked: boolean;
+}
+
+interface NoteRow {
+	note: PreviewNote;
+	input: HTMLInputElement;
+}
+
+interface LineRow {
+	line: PreviewLine;
+	note: PreviewNote;
+	input: HTMLInputElement;
+	badge: HTMLElement;
+}
 
 export class ReviewModal extends Modal {
 	private readonly folderOn = new Map<string, boolean>();
 	private readonly noteOn = new Map<string, boolean>();
 	private readonly lineOn = new Map<string, boolean>();
+	private readonly folderRows: FolderRow[] = [];
+	private readonly noteRows: NoteRow[] = [];
+	private readonly lineRows: LineRow[] = [];
 	private summaryEl: HTMLElement | null = null;
 
 	constructor(
@@ -67,13 +93,22 @@ export class ReviewModal extends Modal {
 			list.push(note);
 			byFolder.set(folder, list);
 		}
+
+		if (byFolder.size > 0) {
+			const bulk = contentEl.createDiv({ cls: 'pecklist-review-bulk' });
+			const all = bulk.createEl('button', { text: 'Select all' });
+			const none = bulk.createEl('button', { text: 'Unselect all' });
+			all.addEventListener('click', () => this.setAll(true));
+			none.addEventListener('click', () => this.setAll(false));
+		}
+
 		const tree = contentEl.createDiv({ cls: 'pecklist-review-tree' });
 		if (byFolder.size === 0) {
 			tree.createEl('p', { text: 'No lines are tagged #pecklist yet. Add the tag to a task line, then sync.' });
 		}
 		for (const folder of [...byFolder.keys()].sort()) this.renderFolder(tree, folder, byFolder.get(folder) ?? []);
 
-		this.updateSummary();
+		this.refresh();
 
 		new Setting(contentEl)
 			.addButton((b) =>
@@ -98,70 +133,101 @@ export class ReviewModal extends Modal {
 	}
 
 	private renderFolder(parent: HTMLElement, folder: string, notes: PreviewNote[]): void {
-		const byAncestor = notes.every((n) => n.excluded === 'folder') && !this.folderExcludedExactly(folder);
-		const startOn = !notes.every((n) => n.excluded === 'folder');
-		this.folderOn.set(folder, startOn);
+		const leftOut = notes.every((n) => n.excluded === 'folder');
+		const locked = leftOut && folder !== '' && !this.folderExcludedExactly(folder);
+		this.folderOn.set(folder, !leftOut);
 
 		const details = parent.createEl('details', { cls: 'pecklist-review-folder' });
 		details.open = true;
 		const summary = details.createEl('summary');
-		const box = summary.createEl('input', { type: 'checkbox' });
-		box.checked = startOn;
-		box.disabled = byAncestor;
+		const input = summary.createEl('input', { type: 'checkbox' });
 		summary.createSpan({ text: ` ${folder || 'Vault root'}` });
-		if (byAncestor) summary.createSpan({ cls: 'pecklist-review-note', text: ' (left out by a parent folder in settings)' });
+		if (locked) summary.createSpan({ cls: 'pecklist-review-badge', text: 'left out by a parent folder in settings' });
+		input.addEventListener('click', (e) => e.stopPropagation());
+		input.addEventListener('change', () => {
+			this.folderOn.set(folder, input.checked);
+			this.refresh();
+		});
+		this.folderRows.push({ folder, input, locked });
 
 		const body = details.createDiv({ cls: 'pecklist-review-folder-body' });
-		const noteBoxes: HTMLInputElement[] = [];
-		for (const note of notes.sort((a, b) => a.path.localeCompare(b.path))) noteBoxes.push(this.renderNote(body, note));
-		box.addEventListener('click', (e) => e.stopPropagation());
-		box.addEventListener('change', () => {
-			this.folderOn.set(folder, box.checked);
-			for (const nb of noteBoxes) nb.disabled = !box.checked;
-			this.updateSummary();
-		});
-		for (const nb of noteBoxes) nb.disabled = !startOn;
+		for (const note of notes.sort((a, b) => a.path.localeCompare(b.path))) this.renderNote(body, note);
 	}
 
-	private renderNote(parent: HTMLElement, note: PreviewNote): HTMLInputElement {
-		const startOn = note.excluded !== 'note';
-		this.noteOn.set(note.path, startOn);
+	private renderNote(parent: HTMLElement, note: PreviewNote): void {
+		this.noteOn.set(note.path, note.excluded !== 'note');
 		const wrap = parent.createDiv({ cls: 'pecklist-review-note-row' });
 		const head = wrap.createEl('label', { cls: 'pecklist-review-note-head' });
-		const box = head.createEl('input', { type: 'checkbox' });
-		box.checked = startOn;
+		const input = head.createEl('input', { type: 'checkbox' });
 		const name = note.path.split('/').pop() ?? note.path;
 		head.createSpan({ text: ` ${name.replace(/\.md$/u, '')}` });
+		input.addEventListener('change', () => {
+			this.noteOn.set(note.path, input.checked);
+			this.refresh();
+		});
+		this.noteRows.push({ note, input });
 
 		const lines = wrap.createDiv({ cls: 'pecklist-review-lines' });
-		for (const line of note.lines) this.renderLine(lines, line);
-		box.addEventListener('change', () => {
-			this.noteOn.set(note.path, box.checked);
-			this.updateSummary();
-		});
-		return box;
+		for (const line of note.lines) this.renderLine(lines, line, note);
 	}
 
-	private renderLine(parent: HTMLElement, line: PreviewLine): void {
-		const key = `${line.path}\n${line.lineNo}`;
+	private renderLine(parent: HTMLElement, line: PreviewLine, note: PreviewNote): void {
 		const row = parent.createEl('label', { cls: 'pecklist-review-line' });
-		const box = row.createEl('input', { type: 'checkbox' });
-		const selectable = SELECTABLE.has(line.state);
-		box.checked = line.state === 'new' || line.state === 'linked';
-		box.disabled = !selectable;
-		if (selectable) this.lineOn.set(key, box.checked);
+		const input = row.createEl('input', { type: 'checkbox' });
+		if (SELECTABLE.has(line.state)) this.lineOn.set(lineKey(line), line.state === 'new');
 		row.createSpan({ text: ` ${line.title || '(no title)'}` });
-		const tag = row.createSpan({ cls: 'pecklist-review-badge' });
-		tag.setText(this.badge(line));
-		box.addEventListener('change', () => {
-			this.lineOn.set(key, box.checked);
-			this.updateSummary();
+		const badge = row.createSpan({ cls: 'pecklist-review-badge' });
+		input.addEventListener('change', () => {
+			this.lineOn.set(lineKey(line), input.checked);
+			this.refresh();
 		});
+		this.lineRows.push({ line, note, input, badge });
 	}
 
-	private badge(line: PreviewLine): string {
+	/** Shows every checkbox as what will happen: a left-out folder or note leaves its lines out too. */
+	private refresh(): void {
+		for (const r of this.folderRows) {
+			r.input.checked = this.folderOn.get(r.folder) ?? true;
+			r.input.disabled = r.locked;
+		}
+		for (const r of this.noteRows) {
+			const folderOn = this.folderOn.get(folderOf(r.note.path)) ?? true;
+			r.input.checked = folderOn && (this.noteOn.get(r.note.path) ?? true);
+			r.input.disabled = !folderOn;
+			r.input.parentElement?.toggleClass('is-left-out', !r.input.checked);
+		}
+		for (const r of this.lineRows) {
+			const parentOn = this.parentOn(r.note);
+			const selectable = SELECTABLE.has(r.line.state);
+			const sendable = selectable || r.line.state === 'linked';
+			if (selectable) {
+				r.input.checked = parentOn && (this.lineOn.get(lineKey(r.line)) ?? false);
+				r.input.disabled = !parentOn;
+			} else {
+				r.input.checked = parentOn && r.line.state === 'linked';
+				r.input.disabled = true;
+			}
+			r.badge.setText(sendable && !parentOn ? 'left out with its note or folder' : this.badge(r.line, r.input.checked));
+			r.input.parentElement?.toggleClass('is-left-out', !r.input.checked);
+		}
+		this.updateSummary();
+	}
+
+	private parentOn(note: PreviewNote): boolean {
+		return (this.folderOn.get(folderOf(note.path)) ?? true) && (this.noteOn.get(note.path) ?? true);
+	}
+
+	/** Ticks or unticks every line. Folders and notes keep their choice, so a left-out folder stays out. */
+	private setAll(on: boolean): void {
+		for (const key of this.lineOn.keys()) this.lineOn.set(key, on);
+		this.refresh();
+	}
+
+	private badge(line: PreviewLine, on: boolean): string {
 		switch (line.state) {
 			case 'new':
+			case 'off':
+				if (!on) return 'left out';
 				return line.listIsNew ? `new task in ${line.listName} (new list)` : `new task in ${line.listName}`;
 			case 'linked':
 				return 'already linked';
@@ -169,16 +235,12 @@ export class ReviewModal extends Modal {
 				return 'done, not sent';
 			case 'untitled':
 				return 'no title, not sent';
-			case 'off':
-				return 'left out';
 		}
 	}
 
 	private included(line: PreviewLine, note: PreviewNote): boolean {
-		const folderOn = this.folderOn.get(folderOf(note.path)) ?? true;
-		const noteOn = this.noteOn.get(note.path) ?? true;
-		const lineOn = line.state === 'linked' || (this.lineOn.get(`${line.path}\n${line.lineNo}`) ?? false);
-		return folderOn && noteOn && lineOn;
+		if (!this.parentOn(note)) return false;
+		return line.state === 'linked' || (this.lineOn.get(lineKey(line)) ?? false);
 	}
 
 	private updateSummary(): void {
@@ -186,13 +248,18 @@ export class ReviewModal extends Modal {
 		let create = 0;
 		let linked = 0;
 		let closed = 0;
+		let leftOut = 0;
 		const lists = new Set<string>();
 		const newLists = new Set<string>();
 		const notes = new Set<string>();
 		for (const note of this.preview.notes) {
 			for (const line of note.lines) {
 				if (line.state === 'closed') closed++;
-				if (!this.included(line, note)) continue;
+				const sendable = SELECTABLE.has(line.state) || line.state === 'linked';
+				if (!this.included(line, note)) {
+					if (sendable) leftOut++;
+					continue;
+				}
 				if (line.state === 'new' || line.state === 'off') {
 					create++;
 					lists.add(line.listName);
@@ -211,6 +278,7 @@ export class ReviewModal extends Modal {
 		if (linked > 0) items.createEl('li', { text: `${linked} already linked ${linked === 1 ? 'line keeps' : 'lines keep'} syncing.` });
 		if (lists.size > 0) items.createEl('li', { text: `Lists: ${[...lists].sort().join(', ')}.` });
 		if (newLists.size > 0) items.createEl('li', { text: `New lists to make: ${[...newLists].sort().join(', ')}.` });
+		if (leftOut > 0) items.createEl('li', { text: `${leftOut} tagged ${leftOut === 1 ? 'line is' : 'lines are'} left out.` });
 		if (closed > 0) items.createEl('li', { text: `${closed} done ${closed === 1 ? 'line is' : 'lines are'} not sent.` });
 		items.createEl('li', { text: `Lines tagged #pecklist alone go to ${this.preview.defaultListName ?? 'your inbox'}.` });
 		items.createEl('li', { text: 'After this, changes sync both ways: titles, dates, priority, tags, repeats and done.' });
@@ -218,23 +286,21 @@ export class ReviewModal extends Modal {
 
 	private choice(): ReviewChoice {
 		const choice: ReviewChoice = { excludeFolders: [], includeFolders: [], excludeNotes: [], includeNotes: [], lineOff: [], lineOn: [] };
+		const rootOff = this.folderOn.get('') === false;
 		for (const [folder, on] of this.folderOn) {
-			if (folder === '') {
-				// The vault root can't be left out as a folder: leave out its notes instead.
-				if (!on) for (const note of this.preview.notes) if (folderOf(note.path) === '') this.noteOn.set(note.path, false);
-				continue;
-			}
+			if (folder === '') continue;
 			const exact = this.folderExcludedExactly(folder);
 			if (!on && !exact) choice.excludeFolders.push(folder);
 			if (on && exact) choice.includeFolders.push(folder);
 		}
 		for (const note of this.preview.notes) {
-			const on = this.noteOn.get(note.path) ?? true;
+			// The vault root can't be left out as a folder: its notes are left out instead.
+			const on = (this.noteOn.get(note.path) ?? true) && !(rootOff && folderOf(note.path) === '');
 			const listed = this.options.excludedNotes.includes(note.path);
 			if (!on && !listed) choice.excludeNotes.push(note.path);
 			if (on && listed) choice.includeNotes.push(note.path);
 			for (const line of note.lines) {
-				const lineOn = this.lineOn.get(`${line.path}\n${line.lineNo}`);
+				const lineOn = this.lineOn.get(lineKey(line));
 				if (lineOn === undefined) continue;
 				if (!lineOn && line.state !== 'off') choice.lineOff.push({ path: line.path, lineNo: line.lineNo });
 				if (lineOn && line.state === 'off') choice.lineOn.push({ path: line.path, lineNo: line.lineNo });

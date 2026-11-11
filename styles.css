@@ -59,3 +59,36 @@
 	max-height: 40vh;
 	overflow-y: auto;
 }
+
+.pecklist-review-bulk {
+	display: flex;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.pecklist-review .is-left-out {
+	color: var(--text-faint);
+}
+
+/* The hidden link in Live Preview: a small bird instead of the comment text. */
+.pecklist-marker {
+	display: inline-flex;
+	align-items: center;
+	vertical-align: middle;
+	color: var(--text-faint);
+	cursor: pointer;
+	margin: 0 var(--size-2-1);
+}
+
+.pecklist-marker:hover {
+	color: var(--interactive-accent);
+}
+
+.pecklist-marker.is-off {
+	cursor: default;
+}
+
+.pecklist-marker svg {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
