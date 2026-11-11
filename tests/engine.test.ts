@@ -298,7 +298,7 @@ describe('both sides', () => {
 });
 
 describe('repeats', () => {
-	it('completes once when the Tasks plugin writes the next line, and takes the server\'s dates', async () => {
+	it('completes once when the Tasks plugin writes the next line, and links the closed line to the closed copy', async () => {
 		vault.write('Home.md', '- [ ] Mow #pecklist 🔁 every week 📅 2026-11-15');
 		await sync();
 		const id = idIn('Home.md');
@@ -314,15 +314,41 @@ describe('repeats', () => {
 		await sync();
 		expect(server.calls.filter((c) => c.method === 'complete')).toHaveLength(1);
 		expect(server.tasks.get(id)?.due?.at).toBe('2026-11-22');
+		const copyId = idIn('Home.md', 1);
+		expect(copyId).not.toBe(id);
+		expect(server.tasks.get(copyId)).toMatchObject({ status: 'done', recurrence: null, deletedAt: null });
 		expect(vault.text('Home.md')).toBe(
 			[
 				`- [ ] Mow %%[pecklist:: ${id}]%% #pecklist 🔁 every week 📅 2026-11-22`,
-				'- [x] Mow #pecklist 🔁 every week 📅 2026-11-15 ✅ 2026-11-15',
+				`- [x] Mow %%[pecklist:: ${copyId}]%% #pecklist 📅 2026-11-15 ✅ 2026-11-15`,
 			].join('\n'),
 		);
 		server.calls = [];
 		await sync();
 		expect(server.writes()).toEqual([]);
+	});
+
+	it('unticking the closed line reopens the closed copy, without a second repeating task', async () => {
+		vault.write('Home.md', '- [ ] Mow #pecklist 🔁 every week 📅 2026-11-15');
+		await sync();
+		const id = idIn('Home.md');
+		vault.write(
+			'Home.md',
+			[
+				`- [ ] Mow %%[pecklist:: ${id}]%% #pecklist 🔁 every week 📅 2026-11-22`,
+				`- [x] Mow %%[pecklist:: ${id}]%% #pecklist 🔁 every week 📅 2026-11-15 ✅ 2026-11-15`,
+			].join('\n'),
+		);
+		await sync();
+		const copyId = idIn('Home.md', 1);
+		const lines = vault.text('Home.md').split('\n');
+		vault.write('Home.md', [lines[0], (lines[1] ?? '').replace('- [x]', '- [ ]').replace(' ✅ 2026-11-15', '')].join('\n'));
+		server.calls = [];
+		await sync();
+		expect(server.calls.filter((c) => c.method === 'createTask')).toEqual([]);
+		expect(server.tasks.get(copyId)).toMatchObject({ status: 'open', recurrence: null });
+		expect(server.tasks.get(id)).toMatchObject({ status: 'open', recurrence: 'FREQ=WEEKLY' });
+		expect([...server.tasks.values()].filter((t) => t.recurrence)).toHaveLength(1);
 	});
 
 	it('moves the line on when the repeating task is done in PeckList', async () => {
@@ -373,6 +399,34 @@ describe('a second device', () => {
 		const ids = vault.text('Home.md').split('\n').map((_, i) => idIn('Home.md', i));
 		expect(new Set(ids).size).toBe(2);
 		expect(server.tasks.size).toBe(2);
+	});
+});
+
+describe('the vault tag', () => {
+	it('goes on every new task, never into the note, and never loops', async () => {
+		vault.write('Home.md', '- [ ] Mow #pecklist #yard');
+		await sync({ vaultTag: 'obsidian/Test' });
+		const id = idIn('Home.md');
+		expect(server.tasks.get(id)?.tags).toEqual(['yard', 'obsidian/Test']);
+		expect(vault.text('Home.md')).not.toContain('obsidian');
+		vault.write('Home.md', vault.text('Home.md').replace('#yard', '#garden'));
+		await sync({ vaultTag: 'obsidian/Test' });
+		expect(server.tasks.get(id)?.tags).toEqual(['obsidian/Test', 'garden']);
+		server.calls = [];
+		await sync({ vaultTag: 'obsidian/Test' });
+		expect(server.writes()).toEqual([]);
+	});
+
+	it('is added once to tasks linked before it existed, and stays off if taken off in PeckList', async () => {
+		vault.write('Home.md', '- [ ] Mow #pecklist');
+		await sync();
+		const id = idIn('Home.md');
+		await sync({ vaultTag: 'obsidian/Test' });
+		expect(server.tasks.get(id)?.tags).toEqual(['obsidian/Test']);
+		server.edit(id, { tags: [] });
+		await sync({ vaultTag: 'obsidian/Test' });
+		expect(server.tasks.get(id)?.tags).toEqual([]);
+		expect(vault.text('Home.md')).toBe(`- [ ] Mow %%[pecklist:: ${id}]%% #pecklist`);
 	});
 });
 

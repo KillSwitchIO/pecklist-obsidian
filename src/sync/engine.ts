@@ -79,6 +79,8 @@ export interface EngineOptions {
 	ignoredTags: string[];
 	/** Put a link to the note in a new task's notes. */
 	addNoteLink: boolean;
+	/** A tag every task from this vault gets in PeckList (never written into notes), or null. */
+	vaultTag?: string | null;
 	newId?: () => string;
 	now?: () => Date;
 	/** Saves the state; called after steps that change it. */
@@ -160,6 +162,7 @@ class LineError extends Error {}
 export class SyncEngine {
 	private lists: ApiList[] = [];
 	private readonly ignored: Set<string>;
+	private readonly vaultKey: string | null;
 	private readonly newId: () => string;
 	private readonly now: () => Date;
 	private report: SyncReport = emptyReport();
@@ -170,7 +173,10 @@ export class SyncEngine {
 		private readonly state: SyncState,
 		private readonly options: EngineOptions,
 	) {
-		this.ignored = new Set(options.ignoredTags.map((t) => t.replace(/^#/u, '').toLowerCase()).filter(Boolean));
+		this.vaultKey = options.vaultTag ? tagForRemote(options.vaultTag) : null;
+		this.ignored = new Set(
+			[...options.ignoredTags, ...(options.vaultTag ? [options.vaultTag] : [])].map((t) => t.replace(/^#/u, '').toLowerCase()).filter(Boolean),
+		);
 		this.newId = options.newId ?? (() => ulid());
 		this.now = options.now ?? (() => new Date());
 	}
@@ -293,7 +299,10 @@ export class SyncEngine {
 
 		let { lines } = await this.scan(false);
 		const scannedPaths = new Set(lines.map((l) => l.path));
-		const wanted = new Set<string>([...lines.map((l) => l.id).filter((id): id is string => !!id), ...Object.keys(this.state.snaps)]);
+		// Only links that existed when the run started can be gone: ones made during it (a closed
+		// copy, a create) were never in the scan.
+		const linkedAtStart = new Set(Object.keys(this.state.snaps));
+		const wanted = new Set<string>([...lines.map((l) => l.id).filter((id): id is string => !!id), ...linkedAtStart]);
 
 		// What changed on the server since last time.
 		const remote = new Map<string, ApiTask>();
@@ -354,7 +363,7 @@ export class SyncEngine {
 			}
 		}
 
-		await this.syncDeleted(groups, options.allowManyDeletes === true);
+		await this.syncDeleted(groups, linkedAtStart, options.allowManyDeletes === true);
 		await this.createNew(lines);
 
 		this.state.cursor = cursor;
@@ -449,26 +458,60 @@ export class SyncEngine {
 
 	/** The Tasks plugin closed a repeating task and wrote the next one as a new line. */
 	private async repeatDone(id: string, open: ScannedLine, closed: ScannedLine[], snap: Snapshot | undefined, task: ApiTask | undefined): Promise<void> {
-		for (const s of closed) await this.writeLine(s, withMarker(s.line, null));
+		const history = closed[0] as ScannedLine;
+		// Older closed copies of the same line have no task of their own: leave them out for good.
+		for (const s of closed.slice(1)) await this.writeLine(s, withMarker(s.line, { kind: 'off' }));
 		let current = task ?? (await this.api.task(id));
 		const before = snap?.remote;
-		const serverMoved = before !== undefined && (before.due !== remoteValues(current).due || before.scheduled !== remoteValues(current).scheduled);
+		const now = this.remote(current);
+		const serverMoved = before !== undefined && (before.due !== now.due || before.scheduled !== now.scheduled);
 		if (current.status === 'open' && !serverMoved) {
-			const closedAs = statusOf((closed[0] as ScannedLine).line) === 'wontdo' ? 'wontdo' : 'done';
+			const closedAs = statusOf(history.line) === 'wontdo' ? 'wontdo' : 'done';
 			const result = await this.api.complete(id, closedAs);
 			this.report.completed++;
-			current = result.next ?? result.completed;
+			if (!result.next) {
+				// The series ended: the closed line is the task itself, and the line the Tasks plugin
+				// wrote has nothing behind it.
+				await this.writeLine(open, withMarker(open.line, { kind: 'off' }));
+				this.state.snaps[id] = this.snapshot(history.path, history.line, result.completed, snap?.vaultTagged ?? false);
+				return;
+			}
+			// PeckList keeps a closed copy, which doesn't repeat. The closed line links to it, so
+			// unticking it reopens that copy instead of starting a second repeating task.
+			const copy = result.completed;
+			const historyLine = withField(withMarker(history.line, { kind: 'id', id: copy.id }), 'recurrence', null);
+			await this.writeLine(history, historyLine);
+			this.state.snaps[copy.id] = this.snapshot(history.path, historyLine, copy, snap?.vaultTagged ?? false);
+			current = result.next;
+		} else {
+			// Already closed elsewhere, so there's no copy to link: the closed line never syncs.
+			await this.writeLine(history, withMarker(history.line, { kind: 'off' }));
 		}
 		// The server owns repeats: the open line takes its dates.
 		const fields: Field[] = ['priority', 'due', 'scheduled', 'recurrence', 'status'];
 		const next = this.applyPull(open.line, fields, current, null);
 		await this.writeLine(open, next);
-		this.state.snaps[id] = { path: open.path, local: localValues(next, this.ignored), remote: remoteValues(current) };
+		this.state.snaps[id] = this.snapshot(open.path, next, current, snap?.vaultTagged ?? false);
+	}
+
+	private snapshot(path: string, line: TaskLine, task: ApiTask, vaultTagged: boolean): Snapshot {
+		return { path, local: localValues(line, this.ignored), remote: this.remote(task), vaultTagged };
+	}
+
+	/** The server's view of a task, without the vault tag (which lives only in PeckList). */
+	private remote(task: ApiTask) {
+		const values = remoteValues(task);
+		if (this.vaultKey) values.tags = values.tags.filter((t) => tagForRemote(t) !== this.vaultKey);
+		return values;
+	}
+
+	private hasVaultTag(task: ApiTask): boolean {
+		return !!this.vaultKey && task.tags.some((t) => tagForRemote(t) === this.vaultKey);
 	}
 
 	private async reconcile(s: ScannedLine, id: string, snap: Snapshot | undefined, task: ApiTask | undefined): Promise<void> {
 		const local = localValues(s.line, this.ignored);
-		const remoteNow = task ? remoteValues(task) : (snap as Snapshot).remote;
+		const remoteNow = task ? this.remote(task) : (snap as Snapshot).remote;
 		const push: Field[] = [];
 		const pull: Field[] = [];
 		const localTime = this.vault.mtime(s.path);
@@ -518,11 +561,27 @@ export class SyncEngine {
 				this.report.received++;
 			}
 		}
+		// Tasks linked before the vault tag existed get it once. Taken off in PeckList, it stays off.
+		let vaultTagged = snap?.vaultTagged ?? false;
+		if (this.options.vaultTag && !vaultTagged) {
+			current ??= await this.fetchOrUnlink(s, id);
+			if (!current) return;
+			if (!this.hasVaultTag(current)) current = await this.api.updateTask(id, { addTags: [this.options.vaultTag] });
+			vaultTagged = true;
+		}
 		this.state.snaps[id] = {
 			path: s.path,
 			local: localValues(next, this.ignored),
-			remote: current ? remoteValues(current) : remoteNow,
+			remote: current ? this.remote(current) : remoteNow,
+			vaultTagged,
 		};
+	}
+
+	/** Tags to send as a whole set: the note's tags, plus the vault tag. */
+	private withVaultTag(tags: string[], task: ApiTask | null): string[] {
+		if (!this.options.vaultTag) return tags;
+		const keep = task?.tags.find((t) => tagForRemote(t) === this.vaultKey) ?? this.options.vaultTag;
+		return [...tags, keep];
 	}
 
 	private async fetchOrUnlink(s: ScannedLine, id: string): Promise<ApiTask | undefined> {
@@ -550,7 +609,7 @@ export class SyncEngine {
 					break;
 				case 'tags': {
 					if (!snap) {
-						input.tags = local.tags;
+						input.tags = this.withVaultTag(local.tags, task);
 						break;
 					}
 					const before = new Set(snap.local.tags.map((t) => t.toLowerCase()));
@@ -615,12 +674,13 @@ export class SyncEngine {
 					const onLine = localValues(next, this.ignored).tags;
 					const base = baseTags ?? onLine;
 					const baseKeys = new Set(base.map(tagForRemote));
-					const remoteKeys = new Set(task.tags.map(tagForRemote));
+					const remoteTags = task.tags.filter((t) => tagForRemote(t) !== this.vaultKey);
+					const remoteKeys = new Set(remoteTags.map(tagForRemote));
 					const lineKeys = new Set(onLine.map(tagForRemote));
 					const remove = new Set([...baseKeys].filter((k) => !remoteKeys.has(k)));
 					next = withoutTags(next, (t) => !isPeckListTag(t) && remove.has(tagForRemote(t)));
 					const add: string[] = [];
-					for (const t of task.tags) {
+					for (const t of remoteTags) {
 						const key = tagForRemote(t);
 						if (baseKeys.has(key) && baseTags !== null) continue;
 						if (lineKeys.has(key)) continue;
@@ -660,10 +720,10 @@ export class SyncEngine {
 
 	// --- Deleted lines ---
 
-	private async syncDeleted(groups: Map<string, ScannedLine[]>, allowMany: boolean): Promise<void> {
+	private async syncDeleted(groups: Map<string, ScannedLine[]>, linkedAtStart: Set<string>, allowMany: boolean): Promise<void> {
 		const gone: HeldDeletion[] = [];
 		for (const [id, snap] of Object.entries(this.state.snaps)) {
-			if (groups.has(id)) continue;
+			if (groups.has(id) || !linkedAtStart.has(id)) continue;
 			if (excludedBy(snap.path, this.options.exclusions)) {
 				// Moved out of sync on purpose: forget the link, leave the task.
 				delete this.state.snaps[id];
@@ -744,7 +804,8 @@ export class SyncEngine {
 		if (local.priority > 0) input.priority = local.priority;
 		if (local.due) input.due = { at: local.due };
 		if (local.scheduled) input.schedule = { start: local.scheduled };
-		if (local.tags.length > 0) input.tags = local.tags;
+		const tags = this.withVaultTag(local.tags, null);
+		if (tags.length > 0) input.tags = tags;
 		const rule = local.recurrence ? tasksToRrule(local.recurrence) : null;
 		if (rule) input.recurrence = rule;
 		if (this.options.addNoteLink) input.notes = `From Obsidian: ${this.vault.noteLink(s.path)}`;
@@ -764,6 +825,6 @@ export class SyncEngine {
 			task = result.completed;
 		}
 		this.report.created++;
-		this.state.snaps[task.id] = { path: s.path, local: localValues(s.line, this.ignored), remote: remoteValues(task) };
+		this.state.snaps[task.id] = this.snapshot(s.path, s.line, task, !!this.options.vaultTag);
 	}
 }

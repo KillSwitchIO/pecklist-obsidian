@@ -44,6 +44,8 @@ export interface Snapshot {
 	path: string;
 	local: LocalValues;
 	remote: RemoteValues;
+	/** Whether the vault tag was given to the task (once; taken off in PeckList, it stays off). */
+	vaultTagged?: boolean;
 }
 
 export function localValues(line: TaskLine, ignoredTags: ReadonlySet<string>): LocalValues {

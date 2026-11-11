@@ -150,7 +150,8 @@ export class FakeServer {
 				if (t.status !== 'open') return { completed: structuredClone(t), next: null };
 				const now = new Date(this.clock.tick()).toISOString();
 				if (t.recurrence && (t.due || t.schedule)) {
-					const closed: ApiTask = { ...structuredClone(t), id: testId(), status, completedAt: now };
+					// As the server does: the closed copy keeps the history and doesn't repeat.
+					const closed: ApiTask = { ...structuredClone(t), id: testId(), status, completedAt: now, recurrence: null };
 					this.tasks.set(closed.id, closed);
 					this.touch(closed);
 					const days = t.recurrence.includes('WEEKLY') ? 7 : 1;
