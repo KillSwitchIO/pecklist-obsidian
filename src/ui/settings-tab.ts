@@ -1,4 +1,4 @@
-import { type App, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
+import { type App, type DropdownComponent, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
 import type PeckListPlugin from '../main';
 import { parsePathList, parseTagList } from '../settings';
 
@@ -17,6 +17,24 @@ export class PeckListSettingTab extends PluginSettingTab {
 		private readonly plugin: PeckListPlugin,
 	) {
 		super(app, plugin);
+	}
+
+	// Obsidian's Setting has a then() method, so a promise treats it as a thenable: never return a
+	// Setting (or a builder call that returns one) from a .then callback or an async function.
+	// Promise resolution calls Setting.then, which answers the Setting again, forever, and the
+	// window freezes. These helpers return nothing.
+	private async showAccount(account: Setting): Promise<void> {
+		await this.plugin.refreshAccount();
+		account.setDesc(this.plugin.signedInText());
+	}
+
+	private async fillLists(d: DropdownComponent): Promise<void> {
+		const lists = await this.plugin.loadLists();
+		if (!lists) return;
+		d.selectEl.empty();
+		d.addOption('', 'Inbox');
+		for (const l of lists.filter((x) => !x.isInbox && !x.archived && x.role !== 'viewer')) d.addOption(l.id, l.name);
+		d.setValue(this.plugin.settings.defaultListId);
 	}
 
 	display(): void {
@@ -52,7 +70,7 @@ export class PeckListSettingTab extends PluginSettingTab {
 					this.display();
 				}),
 			);
-		void this.plugin.refreshAccount().then(() => account.setDesc(this.plugin.signedInText()));
+		void this.showAccount(account);
 
 		new Setting(containerEl)
 			.setName('API key')
@@ -76,13 +94,7 @@ export class PeckListSettingTab extends PluginSettingTab {
 				settings.defaultListId = value;
 				await this.plugin.saveSettings();
 			});
-			void this.plugin.loadLists().then((lists) => {
-				if (!lists) return;
-				d.selectEl.empty();
-				d.addOption('', 'Inbox');
-				for (const l of lists.filter((x) => !x.isInbox && !x.archived && x.role !== 'viewer')) d.addOption(l.id, l.name);
-				d.setValue(settings.defaultListId);
-			});
+			void this.fillLists(d);
 		});
 
 		new Setting(containerEl).setName('What syncs').setHeading();
