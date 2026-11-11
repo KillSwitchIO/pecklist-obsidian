@@ -1,92 +1,108 @@
-# Obsidian Sample Plugin
+# PeckList for Obsidian
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+Sync task lines in your notes with your own [PeckList](https://gitlab.com/killswitch10/pecklist) server, both ways. Write a task in the [Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) plugin's format, tag it `#pecklist`, and it shows up in PeckList. Change it on your phone and the line in your note follows.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+Works on Obsidian desktop and mobile. Needs the community **Tasks** plugin and a PeckList server (0.10 or later).
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+## Network use and accounts
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+This plugin talks to **one server: the PeckList server whose address you enter in its settings**, usually one you or your household run yourself. Nothing is sent anywhere else, and there is no telemetry.
 
-## First time developing plugins?
+- It needs an **account on that PeckList server** to work.
+- It sends the task lines you tag (title, dates, priority, tags, repeat, done), and the list each goes to. If **Link back to the note** is on (the default), a new task's notes get an `obsidian://` link holding your vault's name and the note's path.
+- It reads tasks back from the server to update those lines.
+- Untagged lines, the rest of your notes, and notes in folders you leave out are never read for sending.
 
-Quick starting guide for new plugin devs:
+## Getting started
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+1. Install and enable the **Tasks** plugin.
+2. Install this plugin, open its settings and enter your server's address (for example `https://tasks.example.com`).
+3. Select **Sign in with browser**. Your browser opens your server's sign-in page. Sign in there as you usually do and type the code the plugin shows. The plugin never sees your password. Or paste an API key made in PeckList (under API keys in your account settings) with the `tasks:read` and `tasks:write` permissions.
+4. Pick a **Default list**, or leave it on Inbox.
+5. Before the first sync, a review lists every tagged line by folder and note, with a summary of what will happen. Untick folders, notes or single lines to leave them out, then select **Start syncing**. Each device reviews once.
 
-## Releasing new releases
+## Which lines sync
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+- Only task lines with a PeckList tag sync:
+  - `#pecklist` goes to the default list;
+  - `#pecklist/Work` goes to the list "Work".
+- List names are matched ignoring case, and `-` or `_` stand for spaces, so `#pecklist/Home-Projects` goes to "Home Projects". A list that doesn't exist yet is made.
+- Lines that are already done when first seen are not sent.
+- Folders and notes can be left out in the settings or in the review. `Templates` is left out by default. The plugin never writes into a left-out folder.
+- A single line can be left out in the review. That adds `%%[pecklist:: off]%%` to it, and deleting the mark brings it back.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist:: 01JC8R5K2Z4N6PX0M3WQ7HB9TA]%%`. It's an Obsidian comment, so it doesn't show in reading view. It sits before the dates so the Tasks plugin still reads them. Leave it there: it's how a later edit updates the same task instead of making a new one.
 
-## Adding your plugin to the community plugin list
+## What syncs
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+| In the note (Tasks format) | In PeckList |
+|---|---|
+| The line's text | Title |
+| `#pecklist`, `#pecklist/List` | The list |
+| Other tags (`#yard`, `#home/garden`) | Tags (new ones are made) |
+| ⏫ or 🔺 / 🔼 / 🔽 or ⏬ | High / medium / low priority |
+| 📅 due date | Due date |
+| ⏳ scheduled date | Date (start) |
+| 🔁 every ... | Repeat |
+| `[x]` with ✅ date / `[-]` with ❌ date | Done / won't do |
 
-## How to use
+- **Not synced:** 🛫 start and ➕ created stay in the note only. Tags in **Tags not sent** (by default the Tasks plugin's global filter, such as `#task`) stay in the note only.
+- **Times:** the Tasks plugin's dates have no time of day. A time set in PeckList stays on the server when the date moves in the note.
+- **Repeats** in these forms are translated both ways:
+  - every day, week, month or year;
+  - every N of those;
+  - every weekday;
+  - given weekdays;
+  - a day of the month;
+  - the nth or last weekday of the month;
+  - "when done".
 
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+  Other forms stay as written on each side. PeckList moves a repeating task to its next date. When you tick a repeating line, the Tasks plugin writes the next line itself, and the plugin completes the task once and gives the new line the server's dates.
 
-## Manually installing the plugin
+## How both ways works
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+- **Edits:** only the fields that changed are sent, so a title edit in Obsidian and a date change on your phone both survive. If the same field changed on both sides, the newer change wins.
+- **Deleted in Obsidian:** deleting a linked line, or taking its PeckList tag off, moves the task to PeckList's trash, where it can be restored. If many linked lines disappear at once, the plugin asks first.
+- **Deleted in PeckList:** when a task is deleted in PeckList, or its list stops being shared with you, the line stays in your note as plain text, without the tag and id.
+- **Made in PeckList:** tasks made in PeckList itself are not added to your notes.
+- **When it syncs:** at startup, a few seconds after a tagged line changes, on a timer (every 5 minutes by default), and with the **Sync now** command. Offline changes wait for the next sync.
+- **Several devices:** several devices can share a vault through Obsidian Sync, Syncthing and the like. Each device keeps its own sync state and signs in on its own. The API key is kept in Obsidian's secret storage on the device, not in the vault.
 
-## Improve code quality with eslint
+## Commands
 
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
+- **Sync now**
+- **Review what syncs**
+- **Sign in with browser**
 
-## Funding URL
+## Development
 
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
+```bash
+npm install
+npm run dev        # rebuilds main.js on change
+npm run build      # type-check and production build
+npm run lint
+npm test           # unit tests, with a fake server and vault
 ```
 
-If you have multiple URLs, you can also do:
+`npm run test:contract` runs the sync engine against a real PeckList server. Use a throwaway local container, never one with real data:
 
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
+```bash
+PECKLIST_URL=http://localhost:18181 PECKLIST_TOKEN=pl_... npm run test:contract
 ```
 
-## API Documentation
+To try it in Obsidian, copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/pecklist/`. Use a test vault.
 
-See https://docs.obsidian.md
+The plugin uses only PeckList's public Task API (`/api/v1/`), which only ever gains fields, so an older plugin keeps working with a newer server.
+
+- `src/core/`: the Tasks line format, repeats and list tags. No Obsidian imports.
+- `src/api/`: the Task API client.
+- `src/sync/`: the sync engine.
+- `src/obsidian/` and `src/ui/`: everything that touches Obsidian.
+
+This project started from the [Obsidian sample plugin](https://github.com/obsidianmd/obsidian-sample-plugin) (0-BSD) at commit `07ceb81`, keeping its build setup.
+
+The project lives on [GitLab](https://gitlab.com/killswitch10/pecklist-obsidian). Issues and merge requests go there.
+
+## License
+
+[AGPL-3.0-or-later](LICENSE), like PeckList.
