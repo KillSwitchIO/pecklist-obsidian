@@ -1,17 +1,24 @@
 {
-	"name": "obsidian-sample-plugin",
-	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"name": "pecklist-obsidian",
+	"version": "0.1.0",
+	"description": "Sync tagged Tasks lines in Obsidian with a PeckList server, both ways.",
 	"main": "main.js",
 	"type": "module",
+	"private": true,
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"test": "vitest run",
+		"test:contract": "vitest run --config vitest.contract.config.ts"
 	},
-	"keywords": [],
-	"license": "0-BSD",
+	"keywords": [
+		"obsidian",
+		"pecklist",
+		"tasks"
+	],
+	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",
 		"@types/node": "^22.15.17",
@@ -22,6 +29,7 @@
 		"jiti": "^2.6.1",
 		"obsidian": "latest",
 		"typescript": "^5.8.3",
-		"typescript-eslint": "^8.59.1"
+		"typescript-eslint": "^8.59.1",
+		"vitest": "^3.2.4"
 	}
 }

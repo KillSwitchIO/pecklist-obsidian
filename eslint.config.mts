@@ -13,6 +13,9 @@ export default defineConfig(
 		'package.json',
 		'package-lock.json',
 		'tsconfig.json',
+		'tests',
+		'vitest.config.ts',
+		'vitest.contract.config.ts',
 	]),
 	{
 		languageOptions: {
@@ -29,4 +32,16 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		rules: {
+			// PeckList and the Tasks plugin are names; tags, addresses and quoted command names stay as written.
+			'obsidianmd/ui/sentence-case': [
+				'warn',
+				{
+					ignoreWords: ['PeckList', 'Tasks', 'Obsidian', 'API'],
+					ignoreRegex: ['#pecklist(/\\w+)?', 'https?://\\S+', '"[^"]+"'],
+				},
+			],
+		},
+	},
 );
