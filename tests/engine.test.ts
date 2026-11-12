@@ -489,3 +489,105 @@ describe('a new account', () => {
 		await expect(sync({ defaultListId: 'L-GONE' })).rejects.toThrow(/default list is gone/u);
 	});
 });
+
+describe('dates', () => {
+	const line = (path = 'Home.md') => vault.text(path).split('\n')[0] ?? '';
+
+	it('a start date alone sets the start, and a due date alone sets the due date', async () => {
+		vault.write('Home.md', '- [ ] Paint #pecklist 🛫 2026-11-14\n- [ ] Pay rent #pecklist 📅 2026-11-30');
+		await sync();
+		const paint = server.tasks.get(idIn('Home.md', 0));
+		expect(paint?.schedule).toMatchObject({ start: '2026-11-14', end: null, allDay: true });
+		expect(paint?.due).toBeNull();
+		const rent = server.tasks.get(idIn('Home.md', 1));
+		expect(rent?.schedule).toBeNull();
+		expect(rent?.due?.at).toBe('2026-11-30');
+	});
+
+	it('a start and a due date on different days span them, all day, and still set the due date', async () => {
+		vault.write('Home.md', '- [ ] Trip #pecklist 🛫 2026-11-14 📅 2026-11-17');
+		await sync();
+		const trip = server.tasks.get(idIn('Home.md'));
+		expect(trip?.schedule).toMatchObject({ start: '2026-11-14', end: '2026-11-17', allDay: true });
+		expect(trip?.due?.at).toBe('2026-11-17');
+	});
+
+	it('the same day for both is a start and a due date, no span', async () => {
+		vault.write('Home.md', '- [ ] Dentist #pecklist 🛫 2026-11-14 📅 2026-11-14');
+		await sync();
+		const t = server.tasks.get(idIn('Home.md'));
+		expect(t?.schedule).toMatchObject({ start: '2026-11-14', end: null });
+		expect(t?.due?.at).toBe('2026-11-14');
+	});
+
+	it('⏳ is the start when the line has no 🛫, and 🛫 wins when it has both', async () => {
+		vault.write('Home.md', '- [ ] Old style #pecklist ⏳ 2026-11-14\n- [ ] Both #pecklist 🛫 2026-11-15 ⏳ 2026-11-20');
+		await sync();
+		expect(server.tasks.get(idIn('Home.md', 0))?.schedule?.start).toBe('2026-11-14');
+		expect(server.tasks.get(idIn('Home.md', 1))?.schedule?.start).toBe('2026-11-15');
+	});
+
+	it('moving the due date moves the span, and taking it off ends the span', async () => {
+		vault.write('Home.md', '- [ ] Trip #pecklist 🛫 2026-11-14 📅 2026-11-17');
+		await sync();
+		const id = idIn('Home.md');
+		vault.write('Home.md', line().replace('2026-11-17', '2026-11-19'));
+		await sync();
+		expect(server.tasks.get(id)?.schedule).toMatchObject({ start: '2026-11-14', end: '2026-11-19', allDay: true });
+		expect(server.tasks.get(id)?.due?.at).toBe('2026-11-19');
+		vault.write('Home.md', line().replace(' 📅 2026-11-19', ''));
+		await sync();
+		expect(server.tasks.get(id)?.schedule).toMatchObject({ start: '2026-11-14', end: null });
+		expect(server.tasks.get(id)?.due).toBeNull();
+	});
+
+	it('a start moved in PeckList goes where the line keeps it', async () => {
+		vault.write('Home.md', ['- [ ] A #pecklist 🛫 2026-11-14', '- [ ] B #pecklist ⏳ 2026-11-14', '- [ ] C #pecklist'].join('\n'));
+		await sync();
+		const [a, b, c] = [0, 1, 2].map((n) => idIn('Home.md', n));
+		for (const id of [a, b, c]) server.edit(id as string, { schedule: { start: '2026-11-20', end: null, allDay: true, timeZone: 'America/Chicago' } });
+		await sync();
+		const lines = vault.text('Home.md').split('\n');
+		expect(lines[0]).toContain('🛫 2026-11-20');
+		expect(lines[1]).toContain('⏳ 2026-11-20');
+		expect(lines[1]).not.toContain('🛫');
+		expect(lines[2]).toContain('🛫 2026-11-20');
+		// Cleared in PeckList: the start goes from the line, both kinds.
+		vault.write('Home.md', lines[0]?.replace('🛫 2026-11-20', '🛫 2026-11-20 ⏳ 2026-11-21') ?? '');
+		await sync();
+		server.edit(a as string, { schedule: null });
+		await sync();
+		expect(line()).not.toMatch(/🛫|⏳/u);
+	});
+
+	it('a timed slot keeps its hours when the start date moves', async () => {
+		vault.write('Home.md', '- [ ] Call #pecklist 🛫 2026-11-14');
+		await sync();
+		const id = idIn('Home.md');
+		server.edit(id, { schedule: { start: '2026-11-14T09:00', end: '2026-11-14T10:00', allDay: false, timeZone: 'America/Chicago' } });
+		await sync();
+		vault.write('Home.md', line().replace('2026-11-14', '2026-11-16'));
+		await sync();
+		expect(server.tasks.get(id)?.schedule).toMatchObject({ start: '2026-11-16T09:00', end: '2026-11-16T10:00', allDay: false });
+	});
+
+	it('a task synced before spans existed gets its span once, and an end changed in PeckList then stays', async () => {
+		vault.write('Home.md', '- [ ] Trip #pecklist 🛫 2026-11-14 📅 2026-11-17');
+		await sync();
+		const id = idIn('Home.md');
+		// As an older build left it: a start only, and a snapshot with no end.
+		server.edit(id, { schedule: { start: '2026-11-14', end: null, allDay: true, timeZone: 'America/Chicago' } });
+		const snap = state.snaps[id];
+		if (snap) {
+			snap.remote = { ...snap.remote, end: undefined };
+			delete snap.remote.end;
+		}
+		await sync();
+		expect(server.tasks.get(id)?.schedule?.end).toBe('2026-11-17');
+		server.edit(id, { schedule: { start: '2026-11-14', end: '2026-11-18', allDay: true, timeZone: 'America/Chicago' } });
+		await sync();
+		await sync();
+		expect(server.tasks.get(id)?.schedule?.end).toBe('2026-11-18');
+		expect(line()).toContain('📅 2026-11-17');
+	});
+});

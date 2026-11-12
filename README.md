@@ -54,12 +54,13 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 | `#pecklist`, `#pecklist/List` | The list |
 | Other tags (`#yard`, `#home/garden`) | Tags (new ones are made) |
 | ⏫ or 🔺 / 🔼 / 🔽 or ⏬ | High / medium / low priority |
+| 🛫 start date (or ⏳ scheduled, on a line without 🛫) | Start date |
 | 📅 due date | Due date |
-| ⏳ scheduled date | Date (start) |
+| 🛫 and 📅 on different days | The task spans those days, all day (and keeps the due date) |
 | 🔁 every ... | Repeat |
 | `[x]` with ✅ date / `[-]` with ❌ date | Done / won't do |
 
-- **Not synced:** 🛫 start and ➕ created stay in the note only. Tags in **Tags not sent** (by default the Tasks plugin's global filter, such as `#task`) stay in the note only.
+- **Not synced:** ➕ created stays in the note only, and so does ⏳ on a line that also has 🛫. Tags in **Tags not sent** (by default the Tasks plugin's global filter, such as `#task`) stay in the note only.
 - **Times:** the Tasks plugin's dates have no time of day. A time set in PeckList stays on the server when the date moves in the note.
 - **Repeats** in these forms are translated both ways:
   - every day, week, month or year;

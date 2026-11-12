@@ -34,6 +34,8 @@ import {
 	obsidianTag,
 	remoteChanged,
 	remoteValues,
+	scheduleFor,
+	spanEnd,
 	tagForRemote,
 	withDatePart,
 } from './values';
@@ -572,6 +574,13 @@ export class SyncEngine {
 			if (lc && rc) (localTime > remoteTime ? push : pull).push(f);
 			else (lc ? push : pull).push(f);
 		}
+		// A start and a later due date span those days. Tasks synced before spans existed (or
+		// linked by this device for the first time) get theirs once; after that the span follows the
+		// note's dates, and an end changed in PeckList stays.
+		const wantEnd = spanEnd(local);
+		if (wantEnd && wantEnd !== (remoteNow.end ?? null) && (!snap || snap.remote.end === undefined) && !push.includes('scheduled') && !pull.includes('scheduled') && !pull.includes('due')) {
+			push.push('scheduled');
+		}
 
 		let current = task;
 		if (push.length > 0 && !current) current = await this.fetchOrUnlink(s, id);
@@ -677,19 +686,13 @@ export class SyncEngine {
 					input.due = local.due
 						? { at: withDatePart(local.due, task.due?.at), ...(task.due ? { allDay: task.due.allDay, timeZone: task.due.timeZone } : {}) }
 						: null;
+					// The due date also ends a span from the start date. Only when both sides agree on
+					// the start: a start moved in PeckList is pulled into the note instead.
+					if (local.scheduled && task.schedule?.start.slice(0, 10) === local.scheduled) input.schedule = scheduleFor(local, task.schedule);
 					break;
-				case 'scheduled': {
-					if (!local.scheduled) {
-						input.schedule = null;
-						break;
-					}
-					const start = withDatePart(local.scheduled, task.schedule?.start);
-					const end = task.schedule?.end && task.schedule.end >= start ? task.schedule.end : null;
-					input.schedule = task.schedule
-						? { start, end, allDay: task.schedule.allDay, timeZone: task.schedule.timeZone }
-						: { start };
+				case 'scheduled':
+					input.schedule = scheduleFor(local, task.schedule);
 					break;
-				}
 				case 'recurrence': {
 					if (local.recurrence === null) input.recurrence = null;
 					else {
@@ -747,9 +750,14 @@ export class SyncEngine {
 				case 'due':
 					next = withField(next, 'due', task.due ? task.due.at.slice(0, 10) : null);
 					break;
-				case 'scheduled':
-					next = withField(next, 'scheduled', task.schedule ? task.schedule.start.slice(0, 10) : null);
+				case 'scheduled': {
+					// The start goes where the line keeps it: 🛫, or ⏳ on a line that only has ⏳.
+					// Cleared, both go, or ⏳ would become the start next time.
+					const start = task.schedule ? task.schedule.start.slice(0, 10) : null;
+					if (start === null) next = withField(withField(next, 'start', null), 'scheduled', null);
+					else next = withField(next, fieldOf(next, 'start') === null && fieldOf(next, 'scheduled') !== null ? 'scheduled' : 'start', start);
 					break;
+				}
 				case 'recurrence': {
 					if (!task.recurrence) next = withField(next, 'recurrence', null);
 					else {
@@ -851,7 +859,8 @@ export class SyncEngine {
 		const input: TaskInput = { id, title: local.title, listId: await this.ensureListId(s.peckListTag) };
 		if (local.priority > 0) input.priority = local.priority;
 		if (local.due) input.due = { at: local.due };
-		if (local.scheduled) input.schedule = { start: local.scheduled };
+		const schedule = scheduleFor(local, null);
+		if (schedule) input.schedule = schedule;
 		const tags = this.withVaultTag(local.tags, null);
 		if (tags.length > 0) input.tags = tags;
 		const rule = local.recurrence ? tasksToRrule(local.recurrence) : null;

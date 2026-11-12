@@ -3,6 +3,12 @@
 Versions follow [Semantic Versioning](https://semver.org/). A release is a plain `x.y.z` tag that
 matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidian.
 
+## Unreleased
+
+- **Dates:** 🛫 start sets the task's start date in PeckList (⏳ scheduled still does, on a line
+  without 🛫). 📅 due always sets the due date. A start and a due date on different days make the
+  task span those days, all day. Tasks synced before get their span once.
+
 ## 0.1.1 (2026-11-12)
 
 Fixes from Obsidian's automated plugin review, and a first-sync problem on new accounts.
