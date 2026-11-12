@@ -1,8 +1,8 @@
 {
 	"id": "pecklist",
 	"name": "PeckList",
-	"version": "0.1.0",
-	"minAppVersion": "1.11.4",
+	"version": "0.1.1",
+	"minAppVersion": "1.13.0",
 	"description": "Sync tagged Tasks lines with your own PeckList server, both ways: titles, dates, priority, tags, repeats and done.",
 	"author": "KillSwitch10",
 	"authorUrl": "https://gitlab.com/killswitch10/pecklist-obsidian",

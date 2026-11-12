@@ -3,6 +3,22 @@
 Versions follow [Semantic Versioning](https://semver.org/). A release is a plain `x.y.z` tag that
 matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidian.
 
+## 0.1.1 (2026-11-12)
+
+Fixes from Obsidian's automated plugin review, and a first-sync problem on new accounts.
+
+- The settings appear in Obsidian's settings search: the tab is built from Obsidian's declarative
+  settings, so this release needs **Obsidian 1.13 or later** (0.1.0 stays available for older
+  versions).
+- A new PeckList account has no inbox until the app is opened once, and the first sync stopped
+  with "Choose a default list". The review now warns before the first sync, and the message says
+  to open PeckList once or choose a default list.
+- The dotted underline on synced tags is a dotted border, which every supported Obsidian version
+  draws.
+- The task menu uses the plugin's own date helper instead of Obsidian's `moment`.
+- The README says what the plugin lists in the vault and when it writes to the clipboard, and
+  has screenshots.
+
 ## 0.1.0 (2026-11-11)
 
 The first release.
