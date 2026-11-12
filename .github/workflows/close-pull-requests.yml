@@ -1,0 +1,27 @@
+# The GitHub repository is a one-way mirror of GitLab: a pull request opened there is closed with a
+# pointer to GitLab. No checkout, so pull_request_target runs nothing from the pull request.
+name: Close pull requests
+
+on:
+    pull_request_target:
+        types: [opened, reopened]
+
+permissions:
+    pull-requests: write
+
+jobs:
+    close:
+        if: github.repository == 'KillSwitchIO/pecklist-obsidian'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Close with a pointer to GitLab
+              run: gh pr close "$NUMBER" --repo "$REPOSITORY" --comment "$MESSAGE"
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  NUMBER: ${{ github.event.pull_request.number }}
+                  REPOSITORY: ${{ github.repository }}
+                  MESSAGE: >-
+                      Thanks for this! This repository is a read-only mirror of
+                      https://gitlab.com/killswitch10/pecklist-obsidian and is overwritten from there, so
+                      pull requests here cannot be merged. Please open a merge request on GitLab:
+                      https://gitlab.com/killswitch10/pecklist-obsidian/-/merge_requests

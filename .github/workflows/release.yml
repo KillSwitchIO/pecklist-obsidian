@@ -1,13 +1,19 @@
+# The GitHub repository is a one-way mirror of GitLab, where this plugin is developed. Obsidian's
+# community directory installs from GitHub releases, so when a version tag arrives (plain x.y.z,
+# matching manifest.json), this builds the plugin from that tag and publishes the release with
+# main.js, manifest.json and styles.css attached, plus build provenance for the files.
 name: Release Obsidian plugin
 
 on:
     push:
         tags:
-            - '*'
+            - '[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
-    build:
+    release:
+        if: github.repository == 'KillSwitchIO/pecklist-obsidian'
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         permissions:
             contents: write
             id-token: write
@@ -21,30 +27,35 @@ jobs:
                   node-version: 24
                   cache: 'npm'
 
-            - name: Build plugin
+            - name: Check the tag matches manifest.json and versions.json
+              env:
+                  TAG: ${{ github.ref_name }}
+              run: |
+                  set -eu
+                  test "$(jq -r .version manifest.json)" = "$TAG"
+                  test "$(jq -r --arg v "$TAG" '.[$v] // empty' versions.json)" = "$(jq -r .minAppVersion manifest.json)"
+
+            - name: Build, lint and test
               run: |
                   npm ci
+                  npm run lint
+                  npm test
                   npm run build
-
-            - name: Check for optional styles
-              id: styles
-              run: |
-                  [ -f styles.css ] && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
 
             - name: Attest build provenance
               uses: actions/attest@v4
               with:
                   subject-path: |
                       main.js
-                      ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+                      styles.css
 
-            - name: Create release
+            - name: Publish the release
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ github.token }}
+                  TAG: ${{ github.ref_name }}
+                  REPOSITORY: ${{ github.repository }}
               run: |
-                  tag="${GITHUB_REF#refs/tags/}"
-
-                  gh release create "$tag" \
-                    --title="$tag" \
-                    --draft \
-                    main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+                  set -eu
+                  notes="Changes: https://gitlab.com/killswitch10/pecklist-obsidian/-/blob/$TAG/CHANGELOG.md. Developed on GitLab: https://gitlab.com/killswitch10/pecklist-obsidian"
+                  gh release create "$TAG" --repo "$REPOSITORY" --title "$TAG" --notes "$notes" --verify-tag \
+                    main.js manifest.json styles.css

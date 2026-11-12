@@ -4,6 +4,8 @@ Sync task lines in your notes with your own [PeckList](https://gitlab.com/killsw
 
 Works on Obsidian desktop and mobile. Needs the community **Tasks** plugin and a PeckList server (0.10 or later).
 
+The full guide, with every setting, is at [pecklist.com/obsidian](https://pecklist.com/obsidian/).
+
 ## Network use and accounts
 
 This plugin talks to **one server: the PeckList server whose address you enter in its settings**, usually one you or your household run yourself. Nothing is sent anywhere else, and there is no telemetry.
@@ -74,6 +76,15 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 - **When it syncs:** at startup, a few seconds after a tagged line changes, on a timer (every 5 minutes by default), and with the **Sync now** command. Offline changes wait for the next sync.
 - **Several devices:** several devices can share a vault through Obsidian Sync, Syncthing and the like. Each device keeps its own sync state and signs in on its own. The API key is kept in Obsidian's secret storage on the device, not in the vault.
 
+## Settings
+
+- **Server address**, **Account** (Sign in with browser, Sign out) and **API key** (kept in secret storage on the device).
+- **Default list:** where lines tagged `#pecklist` alone go.
+- **Review what syncs**, **Folders left out**, **Notes left out** and **Tags not sent**.
+- **Tag for tasks from this vault:** every task made from the vault gets this tag in PeckList (`obsidian/<vault name>` by default). It's never written into notes. Changing it, or emptying it for none, updates the tasks already in PeckList.
+- **Link back to the note** and **Mark PeckList tags**.
+- **Sync on a timer** and **Start over on this device**.
+
 ## Commands
 
 - **Sync now**
@@ -107,7 +118,7 @@ The plugin uses only PeckList's public Task API (`/api/v1/`), which only ever ga
 
 This project started from the [Obsidian sample plugin](https://github.com/obsidianmd/obsidian-sample-plugin) (0-BSD) at commit `07ceb81`, keeping its build setup.
 
-The project lives on [GitLab](https://gitlab.com/killswitch10/pecklist-obsidian). Issues and merge requests go there.
+The project lives on [GitLab](https://gitlab.com/killswitch10/pecklist-obsidian). Issues and merge requests go there. [GitHub](https://github.com/KillSwitchIO/pecklist-obsidian) is a read-only mirror, where releases for Obsidian are built: push a tag matching `manifest.json` (plain `x.y.z`, after `npm version`) and the mirror's release workflow publishes `main.js`, `manifest.json` and `styles.css`.
 
 ## License
 
