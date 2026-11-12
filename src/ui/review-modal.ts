@@ -217,8 +217,14 @@ export class ReviewModal extends Modal {
 		return (this.folderOn.get(folderOf(note.path)) ?? true) && (this.noteOn.get(note.path) ?? true);
 	}
 
-	/** Ticks or unticks every line. Folders and notes keep their choice, so a left-out folder stays out. */
+	/**
+	 * Ticks or unticks every checkbox: folders, notes and lines. A linked line can't be unticked on
+	 * its own, so unticking all leaves it out with its note, which forgets the link and keeps the
+	 * task. A folder left out by a parent folder in the settings stays as it is.
+	 */
 	private setAll(on: boolean): void {
+		for (const r of this.folderRows) if (!r.locked) this.folderOn.set(r.folder, on);
+		for (const r of this.noteRows) this.noteOn.set(r.note.path, on);
 		for (const key of this.lineOn.keys()) this.lineOn.set(key, on);
 		this.refresh();
 	}
@@ -249,6 +255,7 @@ export class ReviewModal extends Modal {
 		let linked = 0;
 		let closed = 0;
 		let leftOut = 0;
+		let unlinked = 0;
 		const lists = new Set<string>();
 		const newLists = new Set<string>();
 		const notes = new Set<string>();
@@ -257,7 +264,8 @@ export class ReviewModal extends Modal {
 				if (line.state === 'closed') closed++;
 				const sendable = SELECTABLE.has(line.state) || line.state === 'linked';
 				if (!this.included(line, note)) {
-					if (sendable) leftOut++;
+					if (line.state === 'linked') unlinked++;
+					else if (sendable) leftOut++;
 					continue;
 				}
 				if (line.state === 'new' || line.state === 'off') {
@@ -279,6 +287,8 @@ export class ReviewModal extends Modal {
 		if (lists.size > 0) items.createEl('li', { text: `Lists: ${[...lists].sort().join(', ')}.` });
 		if (newLists.size > 0) items.createEl('li', { text: `New lists to make: ${[...newLists].sort().join(', ')}.` });
 		if (leftOut > 0) items.createEl('li', { text: `${leftOut} tagged ${leftOut === 1 ? 'line is' : 'lines are'} left out.` });
+		if (unlinked > 0)
+			items.createEl('li', { text: `${unlinked} linked ${unlinked === 1 ? 'line stops' : 'lines stop'} syncing. ${unlinked === 1 ? 'Its task stays' : 'Their tasks stay'} in PeckList.` });
 		if (closed > 0) items.createEl('li', { text: `${closed} done ${closed === 1 ? 'line is' : 'lines are'} not sent.` });
 		items.createEl('li', { text: `Lines tagged #pecklist alone go to ${this.preview.defaultListName ?? 'your inbox'}.` });
 		items.createEl('li', { text: 'After this, changes sync both ways: titles, dates, priority, tags, repeats and done.' });
