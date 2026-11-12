@@ -1,12 +1,14 @@
 import type { EditorView } from '@codemirror/view';
-import { type MarkdownPostProcessorContext, MarkdownView, Notice, Platform, Plugin, TFile, debounce } from 'obsidian';
+import { MarkdownView, Notice, Platform, Plugin, TFile, debounce } from 'obsidian';
 import { ApiError, PeckListClient, normalizeServerUrl } from './api/client';
 import type { ApiList, ApiMe } from './api/types';
 import { isPeckListTag } from './core/lists';
 import { ObsidianVault, obsidianHttp } from './obsidian/adapters';
-import { lineSyncs, markerDecoration } from './obsidian/marker-decoration';
+import { markerDecoration } from './obsidian/marker-decoration';
+import { ReadingMarks } from './obsidian/reading-marks';
+import { VaultLines } from './obsidian/vault-lines';
 import { type Catalog, PeckListTagSuggest } from './ui/tag-suggest';
-import { showTaskMenu } from './ui/task-menu';
+import { type TaskMenuHooks, showTaskMenu } from './ui/task-menu';
 import { DEFAULT_SETTINGS, type PeckListSettings, effectiveVaultTag } from './settings';
 import { SetupError, SyncEngine, type SyncReport, type SyncState, emptyState } from './sync/engine';
 import { DeletionsModal } from './ui/deletions-modal';
@@ -28,6 +30,7 @@ export default class PeckListPlugin extends Plugin {
 	private promptedReview = false;
 	private warnedTasks = false;
 	private readonly vaultPort = new ObsidianVault(this.app);
+	readonly lines = new VaultLines(this.app, this.vaultPort);
 	private readonly syncSoon = debounce(() => void this.sync('change'), 4000, true);
 
 	async onload(): Promise<void> {
@@ -43,17 +46,18 @@ export default class PeckListPlugin extends Plugin {
 		this.registerEditorExtension(
 			markerDecoration({
 				open: (id) => this.openTask(id),
-				menu: (id, event, line) =>
-					showTaskMenu(this.app, event, id, line, {
-						open: (taskId) => this.openTask(taskId),
-						catalog: () => this.catalog(),
-						toggleDone: (text) => this.tasksToggleDone(text),
-					}),
+				menu: (id, event, line) => showTaskMenu(this.app, event, id, line, this.menuHooks(this.app.workspace.getActiveFile()?.path ?? null)),
 				changed: (view, deleted) => void this.afterMenuEdit(view, deleted),
 				sent: (tag) => this.isSentTag(tag),
 			}),
 		);
-		this.registerMarkdownPostProcessor((el, ctx) => this.markReadingTags(el, ctx));
+		const reading = new ReadingMarks(this.lines, {
+			sent: (tag) => this.isSentTag(tag),
+			open: (id) => this.openTask(id),
+			menu: (id, event, path, line) => showTaskMenu(this.app, event, id, line, this.menuHooks(path)),
+			changed: (path, deleted) => void this.afterLineEdit(path, deleted),
+		});
+		this.registerMarkdownPostProcessor((el, ctx) => reading.process(el, ctx));
 		this.applyTagMarks();
 		this.registerTagSuggest();
 
@@ -262,14 +266,35 @@ export default class PeckListPlugin extends Plugin {
 		await this.sync(deleted ? 'manual' : 'change');
 	}
 
+	/** What the task menu needs, for a line in the note at `path`. */
+	menuHooks(path: string | null): TaskMenuHooks {
+		return {
+			open: (taskId) => this.openTask(taskId),
+			catalog: () => this.catalog(),
+			toggleDone: (text) => this.tasksToggleDone(text, path),
+		};
+	}
+
+	/**
+	 * A line was changed outside the editor (reading view, a query, the task manager). The open
+	 * note is saved first, if the edit went through its editor, so the sync reads the new line.
+	 */
+	async afterLineEdit(path: string, deleted: boolean): Promise<void> {
+		let open: MarkdownView | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!open && leaf.view instanceof MarkdownView && leaf.view.file?.path === path) open = leaf.view;
+		});
+		if (open) await (open as MarkdownView).save();
+		await this.sync(deleted ? 'manual' : 'change');
+	}
+
 	/** The Tasks plugin's own "toggle done" (it writes a repeating task's next one), if installed. */
-	private tasksToggleDone(text: string): string | null {
-		const file = this.app.workspace.getActiveFile();
+	private tasksToggleDone(text: string, path: string | null): string | null {
 		const tasks = (this.app as unknown as { plugins?: { plugins?: Record<string, { apiV1?: { executeToggleTaskDoneCommand?: (line: string, path: string) => string } }> } }).plugins?.plugins?.[TASKS_PLUGIN];
 		const toggle = tasks?.apiV1?.executeToggleTaskDoneCommand;
-		if (!toggle || !file) return null;
+		if (!toggle || !path) return null;
 		try {
-			return toggle(text, file.path);
+			return toggle(text, path);
 		} catch {
 			return null;
 		}
@@ -281,35 +306,6 @@ export default class PeckListPlugin extends Plugin {
 		if (isPeckListTag(key)) return false;
 		if (this.vaultTag()?.toLowerCase() === key) return false;
 		return !(this.settings.ignoredTags ?? []).some((t) => t.replace(/^#/u, '').toLowerCase() === key);
-	}
-
-	/** Reading view: the same classes as the editor on the tags of task items with a list tag. */
-	private markReadingTags(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
-		const mark = (): void => {
-			// The source lines tell whether an item syncs: the link comment isn't in reading view.
-			const section = ctx.getSectionInfo(el);
-			const source = section?.text.split(/\r?\n/u);
-			el.querySelectorAll('li.task-list-item').forEach((item) => {
-				// The Tasks plugin builds an item before setting its data-line; skip it until then.
-				const attr = item.getAttribute('data-line');
-				if (section && attr === null) return;
-				const line = section && source && attr !== null ? source[section.lineStart + Number(attr)] : undefined;
-				// Only the item's own tags, not those of nested items.
-				const tags = Array.from(item.querySelectorAll('a.tag')).filter((a) => a.closest('li') === item);
-				const name = (a: Element): string => (a.getAttribute('href') ?? a.textContent ?? '').replace(/^#/u, '');
-				const syncs = line !== undefined ? lineSyncs(line) : tags.some((a) => isPeckListTag(name(a)));
-				// Set or clear, so a later pass corrects an earlier one.
-				for (const a of tags) {
-					a.toggleClass('pecklist-list-tag', syncs && isPeckListTag(name(a)));
-					a.toggleClass('pecklist-sent-tag', syncs && !isPeckListTag(name(a)) && this.isSentTag(name(a)));
-				}
-			});
-		};
-		mark();
-		// The Tasks plugin draws its task items again after this runs; mark the new ones too.
-		const observer = new MutationObserver(() => mark());
-		observer.observe(el, { childList: true, subtree: true });
-		window.setTimeout(() => observer.disconnect(), 3000);
 	}
 
 	/** The tag marks are drawn by styles.css only while this class is on the body. */

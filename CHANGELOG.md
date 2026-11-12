@@ -5,6 +5,9 @@ matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidi
 
 ## Unreleased
 
+- **Fixed: no bird in Tasks queries.** Query results (and tasks the Tasks plugin draws in reading
+  view) show the bird on linked tasks, with the same click and task menu as in the editor, and
+  their PeckList tags are marked again.
 - **Dates:** 🛫 start sets the task's start date in PeckList (⏳ scheduled still does, on a line
   without 🛫). 📅 due always sets the due date. A start and a due date on different days make the
   task span those days, all day. Tasks synced before get their span once.

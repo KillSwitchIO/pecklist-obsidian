@@ -75,7 +75,7 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 
 ## In the editor
 
-- **The bird:** in Live Preview the hidden id shows as a small bird. Click it to open the task in PeckList. Right-click it for the task menu: **Open in PeckList**, **Complete**, **Won't do** (or **Reopen** on a closed task), **Move to list...** and **Delete task**. Each one edits the line, so undo in the note brings it back, and the change syncs right away. A repeating task is completed through the Tasks plugin, the same as ticking its box. **Delete task** removes the line and moves the task to PeckList's trash.
+- **The bird:** in Live Preview, reading view and Tasks query results, a linked line shows a small bird. Click it to open the task in PeckList. Right-click it for the task menu: **Open in PeckList**, **Complete**, **Won't do** (or **Reopen** on a closed task), **Move to list...** and **Delete task**. Each one edits the line, so undo in the note brings it back, and the change syncs right away. A repeating task is completed through the Tasks plugin, the same as ticking its box. **Delete task** removes the line and moves the task to PeckList's trash.
 - **Suggestions:** typing `#pec` on a task line suggests your PeckList lists. On a line that syncs, typing another tag suggests tags from your vault and from PeckList together. Everywhere else Obsidian's own tag suggestions show as usual.
 - **Tag marks:** on lines that sync, list tags get a small bird and the tags sent to PeckList get a dotted underline, in Live Preview and in reading view. They use your theme's tag color. Turn them off with **Mark PeckList tags** in the settings.
 
