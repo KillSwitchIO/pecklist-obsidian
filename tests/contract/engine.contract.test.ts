@@ -31,12 +31,13 @@ let listId: string;
 let vault: FakeVault;
 let state: SyncState;
 
-function engine(): SyncEngine {
+function engine(vaultTag: string | null = null): SyncEngine {
 	return new SyncEngine(vault, client, state, {
 		defaultListId: listId,
 		exclusions: { folders: [], notes: [] },
 		ignoredTags: ['task'],
 		addNoteLink: true,
+		vaultTag,
 	});
 }
 
@@ -128,7 +129,14 @@ run('against a real server', () => {
 		const line = vault.text('Home.md').split('\n')[0] ?? '';
 		expect(line).toContain(`📅 ${task.due?.at.slice(0, 10)}`);
 		expect(line).toContain(`⏳ ${task.schedule?.start.slice(0, 10)}`);
-		expect(vault.text('Home.md').split('\n')[1]).not.toContain('pecklist::');
+		// The closed line links to PeckList's closed copy, which doesn't repeat, and drops its 🔁,
+		// so unticking it reopens that copy instead of making a second repeating task.
+		const closedId = idIn('Home.md', 1);
+		expect(closedId).not.toBe(id);
+		expect(vault.text('Home.md').split('\n')[1]).not.toContain('🔁');
+		const copy = await client.task(closedId);
+		expect(copy.status).toBe('done');
+		expect(copy.recurrence).toBeNull();
 		requests.length = 0;
 		await engine().sync();
 		expect(writes()).toEqual([]);
@@ -156,6 +164,18 @@ run('against a real server', () => {
 		await client.deleteTask(plain);
 		await engine().sync();
 		expect(vault.text('Home.md').split('\n')[2]).toBe('- [ ] Plain one, renamed #errands 🔼 📅 2026-11-20');
+	});
+
+	it('swaps the vault tag on linked tasks when it changes, and takes it off when cleared', async () => {
+		vault.write('Tagged.md', '- [ ] Vault tag check #task #pecklist #errands');
+		await engine('obsidian/Contract').sync();
+		const id = idIn('Tagged.md');
+		expect((await client.task(id)).tags.sort()).toEqual(['errands', 'obsidian/contract']);
+		await engine('contract-2').sync();
+		expect((await client.task(id)).tags.sort()).toEqual(['contract-2', 'errands']);
+		await engine(null).sync();
+		expect((await client.task(id)).tags).toEqual(['errands']);
+		expect(vault.text('Tagged.md')).not.toMatch(/contract/iu);
 	});
 
 	it('repeating a create with the same id makes no second task', async () => {

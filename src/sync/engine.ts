@@ -66,6 +66,8 @@ export interface SyncState {
 	snaps: Record<string, Snapshot>;
 	/** Tasks whose last sync failed; read from the server again next time. */
 	refetch: string[];
+	/** The vault tag the linked tasks were given, so a change in the settings can swap it. */
+	vaultTag?: string | null;
 }
 
 export function emptyState(server: string, accountId: string | null): SyncState {
@@ -81,6 +83,11 @@ export interface EngineOptions {
 	addNoteLink: boolean;
 	/** A tag every task from this vault gets in PeckList (never written into notes), or null. */
 	vaultTag?: string | null;
+	/**
+	 * The vault tag to assume the linked tasks have when the state doesn't say (state saved by an
+	 * older build): the default one. Not set: the current vault tag.
+	 */
+	previousVaultTag?: string | null;
 	newId?: () => string;
 	now?: () => Date;
 	/** Saves the state; called after steps that change it. */
@@ -296,6 +303,8 @@ export class SyncEngine {
 		this.report = emptyReport();
 		await this.loadLists();
 		this.defaultList();
+		// Before reading changes, so the old vault tag never comes back as a plain tag.
+		await this.retagVault();
 
 		let { lines } = await this.scan(false);
 		const scannedPaths = new Set(lines.map((l) => l.path));
@@ -369,6 +378,40 @@ export class SyncEngine {
 		this.state.cursor = cursor;
 		this.options.save?.(this.state);
 		return this.report;
+	}
+
+	/**
+	 * The vault tag changed in the settings (or was cleared): take the old one off and put the new
+	 * one on every linked task that has it. Safe to repeat, so after an error the next sync tries
+	 * again.
+	 */
+	private async retagVault(): Promise<void> {
+		const now = this.options.vaultTag || null;
+		const before = this.state.vaultTag !== undefined ? this.state.vaultTag : this.options.previousVaultTag !== undefined ? this.options.previousVaultTag : now;
+		if ((before ? tagForRemote(before) : null) === (now ? tagForRemote(now) : null)) {
+			this.state.vaultTag = now;
+			return;
+		}
+		for (const [id, snap] of Object.entries(this.state.snaps)) {
+			if (!snap.vaultTagged) continue;
+			const input: TaskInput = {};
+			if (before) input.removeTags = [before];
+			if (now) input.addTags = [now];
+			try {
+				const task = await this.api.updateTask(id, input);
+				snap.remote = this.remote(task);
+			} catch (e) {
+				// A task deleted in PeckList is dealt with by the rest of the sync.
+				if (!isNotFound(e)) {
+					if (isFatal(e)) throw e;
+					this.report.errors.push({ path: snap.path, title: snap.local.title, message: e instanceof Error ? e.message : String(e) });
+					return;
+				}
+			}
+			snap.vaultTagged = !!now;
+		}
+		this.state.vaultTag = now;
+		this.options.save?.(this.state);
 	}
 
 	/** After the person confirms held deletions: trash them in PeckList, or only forget the links. */

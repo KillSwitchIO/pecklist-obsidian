@@ -136,16 +136,16 @@ export class PeckListSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Tag for tasks from this vault')
-			.setDesc(`Every task made from this vault gets this tag in PeckList, so you can find them all there. It isn't added to your notes. Empty for none. Default: obsidian/${this.app.vault.getName()}.`)
-			.addText((t) =>
-				t
-					.setPlaceholder('obsidian/vault-name')
-					.setValue(this.plugin.vaultTag() ?? '')
-					.onChange(async (value) => {
-						settings.vaultTag = value.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
+			.setDesc(`Every task made from this vault gets this tag in PeckList, so you can find them all there. It isn't added to your notes. Changing it, or emptying it for none, updates the tasks already in PeckList. Default: obsidian/${this.app.vault.getName()}.`)
+			.addText((text) => {
+				text.setPlaceholder('obsidian/vault-name').setValue(this.plugin.vaultTag() ?? '');
+				// Saved on leaving the box or Enter, not per key: a change swaps the tag on every
+				// task in PeckList, and a sync mid-typing would swap in half a tag.
+				text.inputEl.addEventListener('change', () => {
+					settings.vaultTag = text.getValue().trim();
+					void this.plugin.saveSettings().then(() => this.plugin.sync('change'));
+				});
+			});
 
 		new Setting(containerEl)
 			.setName('Link back to the note')

@@ -377,6 +377,7 @@ export default class PeckListPlugin extends Plugin {
 			defaultListId: this.settings.defaultListId || null,
 			exclusions: { folders: this.settings.excludedFolders, notes: this.settings.excludedNotes },
 			ignoredTags: this.settings.ignoredTags ?? [],
+			previousVaultTag: effectiveVaultTag({ ...this.settings, vaultTag: null }, this.app.vault.getName()),
 			addNoteLink: this.settings.addNoteLink,
 			vaultTag: this.vaultTag(),
 			save: (s) => this.saveState(s),

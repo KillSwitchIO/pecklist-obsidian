@@ -428,6 +428,35 @@ describe('the vault tag', () => {
 		expect(server.tasks.get(id)?.tags).toEqual([]);
 		expect(vault.text('Home.md')).toBe(`- [ ] Mow %%[pecklist:: ${id}]%% #pecklist`);
 	});
+
+	it('is swapped on every linked task when the setting changes, and taken off when cleared', async () => {
+		vault.write('Home.md', '- [ ] Mow #pecklist #yard\n- [ ] Paint #pecklist');
+		await sync({ vaultTag: 'obsidian/Test' });
+		const mow = idIn('Home.md', 0);
+		const paint = idIn('Home.md', 1);
+		await sync({ vaultTag: 'test-vault-2' });
+		expect(server.tasks.get(mow)?.tags).toEqual(['yard', 'test-vault-2']);
+		expect(server.tasks.get(paint)?.tags).toEqual(['test-vault-2']);
+		await sync({ vaultTag: null });
+		expect(server.tasks.get(mow)?.tags).toEqual(['yard']);
+		expect(server.tasks.get(paint)?.tags).toEqual([]);
+		expect(vault.text('Home.md')).not.toContain('vault');
+		server.calls = [];
+		await sync({ vaultTag: null });
+		expect(server.writes()).toEqual([]);
+		// Set again later: every task gets it once more.
+		await sync({ vaultTag: 'obsidian/Test' });
+		expect(server.tasks.get(paint)?.tags).toEqual(['obsidian/Test']);
+	});
+
+	it('takes the default one off tasks synced by a build that did not record it', async () => {
+		vault.write('Home.md', '- [ ] Mow #pecklist');
+		await sync({ vaultTag: 'obsidian/Test' });
+		const id = idIn('Home.md');
+		delete state.vaultTag;
+		await sync({ vaultTag: 'renamed', previousVaultTag: 'obsidian/Test' });
+		expect(server.tasks.get(id)?.tags).toEqual(['renamed']);
+	});
 });
 
 describe('preview', () => {
