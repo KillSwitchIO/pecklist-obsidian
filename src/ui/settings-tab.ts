@@ -157,6 +157,17 @@ export class PeckListSettingTab extends PluginSettingTab {
 				}),
 			);
 
+		new Setting(containerEl)
+			.setName('Mark PeckList tags')
+			.setDesc('In notes, show a small bird on list tags and a dotted underline on tags that sync to PeckList. Uses your theme\'s colors.')
+			.addToggle((t) =>
+				t.setValue(settings.markTags).onChange(async (value) => {
+					settings.markTags = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyTagMarks();
+				}),
+			);
+
 		new Setting(containerEl).setName('Sync').setHeading();
 
 		new Setting(containerEl)

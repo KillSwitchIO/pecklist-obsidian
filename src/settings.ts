@@ -18,6 +18,8 @@ export interface PeckListSettings {
 	addNoteLink: boolean;
 	/** A tag every task from this vault gets in PeckList. Null: obsidian/<vault name>. Empty: none. */
 	vaultTag: string | null;
+	/** Mark PeckList list tags and the tags sent to PeckList in notes. */
+	markTags: boolean;
 }
 
 export const DEFAULT_SECRET = 'pecklist-api-key';
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS: PeckListSettings = {
 	intervalMinutes: 5,
 	addNoteLink: true,
 	vaultTag: null,
+	markTags: true,
 };
 
 /** The vault tag in effect: the setting, else obsidian/<vault name> written as a valid tag. */

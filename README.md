@@ -59,6 +59,12 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 
   Other forms stay as written on each side. PeckList moves a repeating task to its next date. When you tick a repeating line, the Tasks plugin writes the next line itself, and the plugin completes the task once and gives the new line the server's dates.
 
+## In the editor
+
+- **The bird:** in Live Preview the hidden id shows as a small bird. Click it to open the task in PeckList. Right-click it for the task menu: **Open in PeckList**, **Complete**, **Won't do** (or **Reopen** on a closed task), **Move to list...** and **Delete task**. Each one edits the line, so undo in the note brings it back, and the change syncs right away. A repeating task is completed through the Tasks plugin, the same as ticking its box. **Delete task** removes the line and moves the task to PeckList's trash.
+- **Suggestions:** typing `#pec` on a task line suggests your PeckList lists. On a line that syncs, typing another tag suggests tags from your vault and from PeckList together. Everywhere else Obsidian's own tag suggestions show as usual.
+- **Tag marks:** on lines that sync, list tags get a small bird and the tags sent to PeckList get a dotted underline, in Live Preview and in reading view. They use your theme's tag color. Turn them off with **Mark PeckList tags** in the settings.
+
 ## How both ways works
 
 - **Edits:** only the fields that changed are sent, so a title edit in Obsidian and a date change on your phone both survive. If the same field changed on both sides, the newer change wins.

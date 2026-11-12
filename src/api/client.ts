@@ -101,6 +101,11 @@ export class PeckListClient {
 		return page.items;
 	}
 
+	async tags(): Promise<{ id: string; name: string }[]> {
+		const page = await this.call<{ items: { id: string; name: string; deletedAt?: string | null }[] }>('GET', '/api/v1/tags');
+		return page.items.filter((t) => !t.deletedAt);
+	}
+
 	createList(id: string, name: string): Promise<ApiList> {
 		return this.call('POST', '/api/v1/lists', { id, name });
 	}

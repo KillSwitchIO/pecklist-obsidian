@@ -92,3 +92,49 @@
 	width: var(--icon-xs);
 	height: var(--icon-xs);
 }
+
+/* Status bar: one fixed width and even-width digits, so a new time never moves anything. */
+.pecklist-status {
+	display: inline-block;
+	width: 24ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Tag suggestions. */
+.pecklist-suggest-note {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/*
+ * Tags on lines that sync (only while "Mark PeckList tags" is on). Everything here is drawn in
+ * currentColor, the color the theme already gives the tag, so no theme's palette is replaced.
+ * - A list tag (#pecklist, #pecklist/List) gets a small bird before its "#".
+ * - A tag sent to PeckList gets a dotted underline.
+ */
+.pecklist-mark-tags .pecklist-list-tag::before {
+	content: "";
+	display: inline-block;
+	width: 0.9em;
+	height: 0.9em;
+	margin-inline-end: 0.15em;
+	vertical-align: -0.1em;
+	background-color: currentColor;
+	-webkit-mask: var(--pecklist-bird) center / contain no-repeat;
+	mask: var(--pecklist-bird) center / contain no-repeat;
+}
+
+.pecklist-mark-tags .pecklist-sent-tag {
+	text-decoration-line: underline;
+	text-decoration-style: dotted;
+	text-decoration-color: color-mix(in srgb, currentColor 60%, transparent);
+	text-underline-offset: 0.2em;
+}
+
+body {
+	/* Lucide's bird, the same icon as the link marker. */
+	--pecklist-bird: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 7h.01'/><path d='M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20'/><path d='m20 7 2 .5-2 .5'/><path d='M10 18v3'/><path d='M14 17.75V21'/><path d='M7 18a6 6 0 0 0 3.84-10.61'/></svg>");
+}

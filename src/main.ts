@@ -1,9 +1,12 @@
-import { Notice, Platform, Plugin, TFile, debounce } from 'obsidian';
+import type { EditorView } from '@codemirror/view';
+import { type MarkdownPostProcessorContext, MarkdownView, Notice, Platform, Plugin, TFile, debounce } from 'obsidian';
 import { ApiError, PeckListClient, normalizeServerUrl } from './api/client';
 import type { ApiList, ApiMe } from './api/types';
 import { isPeckListTag } from './core/lists';
 import { ObsidianVault, obsidianHttp } from './obsidian/adapters';
-import { markerDecoration } from './obsidian/marker-decoration';
+import { lineSyncs, markerDecoration } from './obsidian/marker-decoration';
+import { type Catalog, PeckListTagSuggest } from './ui/tag-suggest';
+import { showTaskMenu } from './ui/task-menu';
 import { DEFAULT_SETTINGS, type PeckListSettings, effectiveVaultTag } from './settings';
 import { SetupError, SyncEngine, type SyncReport, type SyncState, emptyState } from './sync/engine';
 import { DeletionsModal } from './ui/deletions-modal';
@@ -12,6 +15,7 @@ import { PeckListSettingTab } from './ui/settings-tab';
 import { SignInModal } from './ui/signin-modal';
 
 const STATE_KEY = 'pecklist-sync-state';
+const CATALOG_KEY = 'pecklist-catalog';
 const TASKS_PLUGIN = 'obsidian-tasks-plugin';
 
 export default class PeckListPlugin extends Plugin {
@@ -30,12 +34,28 @@ export default class PeckListPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new PeckListSettingTab(this.app, this));
 		this.statusEl = this.addStatusBarItem();
+		this.statusEl.addClass('pecklist-status');
 		this.setStatus('');
 
 		this.addCommand({ id: 'sync-now', name: 'Sync now', callback: () => void this.sync('manual') });
 		this.addCommand({ id: 'review', name: 'Review what syncs', callback: () => void this.openReview(false) });
 		this.addCommand({ id: 'sign-in', name: 'Sign in with browser', callback: () => this.openSignIn() });
-		this.registerEditorExtension(markerDecoration((id) => this.openTask(id)));
+		this.registerEditorExtension(
+			markerDecoration({
+				open: (id) => this.openTask(id),
+				menu: (id, event, line) =>
+					showTaskMenu(this.app, event, id, line, {
+						open: (taskId) => this.openTask(taskId),
+						catalog: () => this.catalog(),
+						toggleDone: (text) => this.tasksToggleDone(text),
+					}),
+				changed: (view, deleted) => void this.afterMenuEdit(view, deleted),
+				sent: (tag) => this.isSentTag(tag),
+			}),
+		);
+		this.registerMarkdownPostProcessor((el, ctx) => this.markReadingTags(el, ctx));
+		this.applyTagMarks();
+		this.registerTagSuggest();
 
 		this.app.workspace.onLayoutReady(() => {
 			void this.readTasksGlobalFilter();
@@ -58,6 +78,7 @@ export default class PeckListPlugin extends Plugin {
 
 	onunload(): void {
 		this.syncSoon.cancel();
+		document.body.removeClass('pecklist-mark-tags');
 	}
 
 	// --- Settings and state ---
@@ -223,15 +244,132 @@ export default class PeckListPlugin extends Plugin {
 		window.open(listId ? `${base}/lists/${encodeURIComponent(listId)}?${query}` : `${base}/today?${query}`);
 	}
 
+	/**
+	 * The bird's menu changed a task line. Saving the note first means the sync reads the new line
+	 * right away. A deleted line means the link is gone, so the task is trashed in PeckList (where
+	 * it can be restored); that sync is a manual one, so its notice says so.
+	 */
+	private async afterMenuEdit(view: EditorView, deleted: boolean): Promise<void> {
+		let md: MarkdownView | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!md && leaf.view instanceof MarkdownView && (leaf.view.editor as unknown as { cm?: EditorView }).cm === view) md = leaf.view;
+		});
+		if (!md) {
+			this.syncSoon();
+			return;
+		}
+		await (md as MarkdownView).save();
+		await this.sync(deleted ? 'manual' : 'change');
+	}
+
+	/** The Tasks plugin's own "toggle done" (it writes a repeating task's next one), if installed. */
+	private tasksToggleDone(text: string): string | null {
+		const file = this.app.workspace.getActiveFile();
+		const tasks = (this.app as unknown as { plugins?: { plugins?: Record<string, { apiV1?: { executeToggleTaskDoneCommand?: (line: string, path: string) => string } }> } }).plugins?.plugins?.[TASKS_PLUGIN];
+		const toggle = tasks?.apiV1?.executeToggleTaskDoneCommand;
+		if (!toggle || !file) return null;
+		try {
+			return toggle(text, file.path);
+		} catch {
+			return null;
+		}
+	}
+
+	/** Whether a tag (without `#`) on a syncing line goes to PeckList: not a list tag, not left out. */
+	isSentTag(tag: string): boolean {
+		const key = tag.replace(/^#/u, '').toLowerCase();
+		if (isPeckListTag(key)) return false;
+		if (this.vaultTag()?.toLowerCase() === key) return false;
+		return !(this.settings.ignoredTags ?? []).some((t) => t.replace(/^#/u, '').toLowerCase() === key);
+	}
+
+	/** Reading view: the same classes as the editor on the tags of task items with a list tag. */
+	private markReadingTags(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
+		const mark = (): void => {
+			// The source lines tell whether an item syncs: the link comment isn't in reading view.
+			const section = ctx.getSectionInfo(el);
+			const source = section?.text.split(/\r?\n/u);
+			el.querySelectorAll('li.task-list-item').forEach((item) => {
+				// The Tasks plugin builds an item before setting its data-line; skip it until then.
+				const attr = item.getAttribute('data-line');
+				if (section && attr === null) return;
+				const line = section && source && attr !== null ? source[section.lineStart + Number(attr)] : undefined;
+				// Only the item's own tags, not those of nested items.
+				const tags = Array.from(item.querySelectorAll('a.tag')).filter((a) => a.closest('li') === item);
+				const name = (a: Element): string => (a.getAttribute('href') ?? a.textContent ?? '').replace(/^#/u, '');
+				const syncs = line !== undefined ? lineSyncs(line) : tags.some((a) => isPeckListTag(name(a)));
+				// Set or clear, so a later pass corrects an earlier one.
+				for (const a of tags) {
+					a.toggleClass('pecklist-list-tag', syncs && isPeckListTag(name(a)));
+					a.toggleClass('pecklist-sent-tag', syncs && !isPeckListTag(name(a)) && this.isSentTag(name(a)));
+				}
+			});
+		};
+		mark();
+		// The Tasks plugin draws its task items again after this runs; mark the new ones too.
+		const observer = new MutationObserver(() => mark());
+		observer.observe(el, { childList: true, subtree: true });
+		window.setTimeout(() => observer.disconnect(), 3000);
+	}
+
+	/** The tag marks are drawn by styles.css only while this class is on the body. */
+	applyTagMarks(): void {
+		document.body.toggleClass('pecklist-mark-tags', this.settings.markTags);
+	}
+
 	vaultTag(): string | null {
 		return effectiveVaultTag(this.settings, this.app.vault.getName());
 	}
 
 	// --- Syncing ---
 
-	private setStatus(text: string): void {
+	/**
+	 * The status bar item has a fixed width (styles.css) and even-width digits, so a new time or
+	 * state never moves it or the items beside it. A longer message is cut off, with the whole
+	 * text in the tooltip.
+	 */
+	private setStatus(text: string, tooltip?: string): void {
 		if (!this.statusEl) return;
-		this.statusEl.setText(text ? `PeckList: ${text}` : '');
+		const full = text ? `PeckList: ${text}` : '';
+		if (this.statusEl.getText() !== full) this.statusEl.setText(full);
+		this.statusEl.setAttribute('aria-label', tooltip ?? full);
+	}
+
+	/**
+	 * Obsidian asks suggesters in order and its own tag suggester comes first, so ours is moved to
+	 * the front (as the Tasks plugin does with its own). It only claims `#` on task lines that sync
+	 * or while typing `#pecklist`; everywhere else Obsidian's suggester answers as before. If that
+	 * internal list ever changes shape, ours simply stays where Obsidian put it.
+	 */
+	private registerTagSuggest(): void {
+		const suggest = new PeckListTagSuggest(this.app, () => this.catalog(), () => this.vaultTag());
+		this.registerEditorSuggest(suggest);
+		const list = (this.app.workspace as unknown as { editorSuggest?: { suggests?: unknown[] } }).editorSuggest?.suggests;
+		if (Array.isArray(list) && list.includes(suggest)) {
+			list.splice(list.indexOf(suggest), 1);
+			list.unshift(suggest);
+		}
+	}
+
+	/** Lists and tags for the tag suggestions: from the server after each sync, kept on the device. */
+	catalog(): Catalog {
+		return (this.app.loadLocalStorage(CATALOG_KEY) as Catalog | null) ?? { lists: [], tags: [], defaultListName: null };
+	}
+
+	private async refreshCatalog(client: PeckListClient): Promise<void> {
+		try {
+			const [lists, tags] = await Promise.all([client.lists(), client.tags()]);
+			const usable = lists.filter((l) => !l.deletedAt && !l.archived && l.role !== 'viewer');
+			const chosen = usable.find((l) => l.id === this.settings.defaultListId) ?? usable.find((l) => l.isInbox);
+			const catalog: Catalog = {
+				lists: usable.filter((l) => l.id !== chosen?.id).map((l) => ({ name: l.name })),
+				tags: tags.map((t) => t.name),
+				defaultListName: chosen?.name ?? null,
+			};
+			this.app.saveLocalStorage(CATALOG_KEY, catalog);
+		} catch {
+			// Suggestions keep the last lists and tags this device saw.
+		}
 	}
 
 	private engine(client: PeckListClient, state: SyncState): SyncEngine {
@@ -285,9 +423,12 @@ export default class PeckListPlugin extends Plugin {
 				}
 				return;
 			}
-			this.setStatus('syncing...');
+			// The text stays as it is while syncing, so nothing in the status bar moves.
+			if (!this.statusEl?.getText()) this.setStatus('syncing...');
+			else this.statusEl.setAttribute('aria-label', 'PeckList: syncing...');
 			const report = await this.engine(ready.client, ready.state).sync({ allowManyDeletes });
 			this.afterSync(report, manual, ready.client, ready.state);
+			void this.refreshCatalog(ready.client);
 		} catch (e) {
 			this.showError(e, manual);
 		} finally {
