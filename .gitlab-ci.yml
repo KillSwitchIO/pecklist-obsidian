@@ -11,6 +11,10 @@ workflow:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
+# GitLab's secret detection (free): flags keys or tokens committed by mistake.
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
 default:
   image: node:24-bookworm-slim
   interruptible: true
@@ -44,3 +48,8 @@ test:
   stage: test
   script:
     - npm test
+
+# The template's job runs in GitLab's analyzer image: none of the npm setup above.
+secret_detection:
+  before_script: []
+  cache: []
