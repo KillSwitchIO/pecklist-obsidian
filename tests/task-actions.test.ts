@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeTaskLines, moveTaskLine, reopenTaskLine } from '../src/core/task-actions';
+import { closeTaskLines, editTagsLine, moveTaskLine, reopenTaskLine } from '../src/core/task-actions';
 
 const ID = '%%[pecklist:: 01ABC]%%';
 const none = (): string | null => null;
@@ -37,5 +37,14 @@ describe('task menu line edits', () => {
 	it('moves to another list by swapping the list tag', () => {
 		expect(moveTaskLine(`- [ ] Buy filters ${ID} #task #pecklist/Home-Projects ⏫`, 'pecklist/Work')).toBe(`- [ ] Buy filters ${ID} #task #pecklist/Work ⏫`);
 		expect(moveTaskLine(`- [ ] Buy filters ${ID} #task #pecklist/Work`, 'pecklist')).toBe(`- [ ] Buy filters ${ID} #task #pecklist`);
+	});
+});
+
+describe('editing tags', () => {
+	it('adds and removes tags, leaving the PeckList tag and fields alone', () => {
+		expect(editTagsLine('- [ ] Mow %%[pecklist:: A]%% #pecklist #yard 📅 2026-11-15', ['weekend', 'Weekend'], ['yard', 'pecklist'])).toBe(
+			'- [ ] Mow %%[pecklist:: A]%% #pecklist #weekend 📅 2026-11-15',
+		);
+		expect(editTagsLine('- [ ] Mow #pecklist #yard', ['yard'], [])).toBeNull();
 	});
 });

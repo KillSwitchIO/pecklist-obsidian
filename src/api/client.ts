@@ -8,8 +8,10 @@ import type {
 	ApiList,
 	ApiMe,
 	ApiTask,
+	ApiTaskPage,
 	CliCollected,
 	CliStarted,
+	TaskFilter,
 	TaskInput,
 } from './types';
 
@@ -108,6 +110,14 @@ export class PeckListClient {
 
 	createList(id: string, name: string): Promise<ApiList> {
 		return this.call('POST', '/api/v1/lists', { id, name });
+	}
+
+	/** Tasks, filtered, a page at a time (`next` is the cursor for the following page, or null). */
+	tasks(filter: TaskFilter = {}): Promise<ApiTaskPage> {
+		const query = new URLSearchParams();
+		for (const [key, value] of Object.entries(filter)) if (value !== undefined && value !== null) query.set(key, String(value));
+		const text = query.toString();
+		return this.call('GET', `/api/v1/tasks${text ? `?${text}` : ''}`);
 	}
 
 	task(id: string): Promise<ApiTask> {

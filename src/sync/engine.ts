@@ -6,7 +6,9 @@ import type { ApiList, ApiTask, TaskInput } from '../api/types';
 import {
 	type TaskLine,
 	fieldOf,
+	parseLine,
 	renderLine,
+	tagsOf as tagsOfLine,
 	statusOf,
 	titleOf,
 	withAddedTags,
@@ -56,7 +58,7 @@ export interface VaultPort {
 
 export type Api = Pick<
 	PeckListClient,
-	'lists' | 'createList' | 'task' | 'createTask' | 'updateTask' | 'complete' | 'reopen' | 'deleteTask' | 'changes'
+	'lists' | 'createList' | 'task' | 'tasks' | 'createTask' | 'updateTask' | 'complete' | 'reopen' | 'deleteTask' | 'changes'
 >;
 
 export interface SyncState {
@@ -302,6 +304,118 @@ export class SyncEngine {
 			if (found.off === off) return null;
 			return replaceLine(content, lineNo, text, renderLine(withMarker(found.line, off ? { kind: 'off' } : null)));
 		});
+	}
+
+	// --- The task manager ---
+	//
+	// These change a line and the link together, so the next sync sees what was meant: unlinking
+	// or leaving out a linked line never trashes its task, and a re-linked or added line starts
+	// with a snapshot, so the task isn't pushed back over itself.
+
+	/** Open tasks in PeckList, page by page, up to `max`. */
+	async openTasks(max = 5000): Promise<ApiTask[]> {
+		const out: ApiTask[] = [];
+		let cursor: string | null = null;
+		for (let page = 0; page < 100 && out.length < max; page++) {
+			const result = await this.api.tasks({ status: 'open', limit: 500, cursor });
+			out.push(...result.items.filter((t) => !t.deletedAt));
+			cursor = result.next;
+			if (!cursor) break;
+		}
+		return out;
+	}
+
+	private forget(id: string | null): void {
+		if (!id) return;
+		delete this.state.snaps[id];
+		this.state.refetch = this.state.refetch.filter((r) => r !== id);
+	}
+
+	private async rewrite(path: string, lineNo: number, text: string, change: (s: ScannedLine) => TaskLine | null): Promise<ScannedLine | null> {
+		const found = scanNote(path, text)[0];
+		if (!found) return null;
+		const next = change({ ...found, path, lineNo });
+		if (!next) return null;
+		const ok = await this.vault.edit(path, (content) => replaceLine(content, lineNo, text, renderLine(next)));
+		return ok ? { ...found, path, lineNo, line: next, text: renderLine(next) } : null;
+	}
+
+	/** Takes the link and the PeckList tag off a line. The task stays in PeckList. */
+	async unlinkLine(path: string, lineNo: number, text: string): Promise<boolean> {
+		const found = scanNote(path, text)[0];
+		const done = await this.rewrite(path, lineNo, text, (s) => this.unlinkedLine(s.line));
+		if (done) {
+			this.forget(found?.id ?? null);
+			this.options.save?.(this.state);
+		}
+		return done !== null;
+	}
+
+	/** Marks a line so it never syncs. A linked line's task stays in PeckList. */
+	async leaveOutLine(path: string, lineNo: number, text: string): Promise<boolean> {
+		const found = scanNote(path, text)[0];
+		const done = await this.rewrite(path, lineNo, text, (s) => (s.off ? null : withMarker(s.line, { kind: 'off' })));
+		if (done) {
+			this.forget(found?.id ?? null);
+			this.options.save?.(this.state);
+		}
+		return done !== null;
+	}
+
+	/** Takes a line's link off so the next sync makes it a task of its own (a copied line). */
+	async splitLine(path: string, lineNo: number, text: string): Promise<boolean> {
+		return (await this.rewrite(path, lineNo, text, (s) => (s.id ? withMarker(s.line, null) : null))) !== null;
+	}
+
+	/**
+	 * Links a line to another, existing task. The line takes the task's title, list, tags, dates,
+	 * priority, repeat and status. The task the line had before stays in PeckList.
+	 */
+	async relinkLine(path: string, lineNo: number, text: string, taskId: string): Promise<boolean> {
+		await this.loadLists();
+		const task = await this.api.task(taskId);
+		if (task.deletedAt) throw new SetupError('That task was deleted in PeckList.');
+		const before = scanNote(path, text)[0];
+		const done = await this.rewrite(path, lineNo, text, (s) => withMarker(this.applyPull(this.withListTag(s.line), FIELDS, task, null), { kind: 'id', id: taskId }));
+		if (!done) return false;
+		if (before?.id !== taskId) this.forget(before?.id ?? null);
+		this.state.snaps[taskId] = this.snapshot(path, done.line, task, this.hasVaultTag(task));
+		this.options.save?.(this.state);
+		return true;
+	}
+
+	/** A new task line for a task, as it would be written into a note. */
+	async lineFor(taskId: string): Promise<{ text: string; task: ApiTask }> {
+		await this.loadLists();
+		const task = await this.api.task(taskId);
+		const base = this.withListTag(parseLine('- [ ] x') as TaskLine);
+		const line = withMarker(this.applyPull(base, FIELDS, task, null), { kind: 'id', id: taskId });
+		return { text: renderLine(line), task };
+	}
+
+	/** A line needs a PeckList tag to sync; the default list's stands in until the list is pulled. */
+	private withListTag(line: TaskLine): TaskLine {
+		return tagsOfLine(line).some(isPeckListTag) ? line : withAddedTags(line, [ROOT_TAG]);
+	}
+
+	/** Adds a task made in PeckList to the end of a note, linked. */
+	async addToNote(path: string, taskId: string): Promise<boolean> {
+		const { text, task } = await this.lineFor(taskId);
+		const ok = await this.vault.edit(path, (content) => {
+			const eol = content.includes('\r\n') ? '\r\n' : '\n';
+			if (content === '') return text + eol;
+			return content.endsWith('\n') ? content + text + eol : content + eol + text + eol;
+		});
+		if (!ok) return false;
+		this.state.snaps[taskId] = this.snapshot(path, parseLine(text) as TaskLine, task, this.hasVaultTag(task));
+		this.options.save?.(this.state);
+		return true;
+	}
+
+	/** Forgets links whose lines are gone, without trashing their tasks. */
+	async forgetLinks(ids: string[]): Promise<void> {
+		for (const id of ids) this.forget(id);
+		this.options.save?.(this.state);
 	}
 
 	// --- The sync run ---

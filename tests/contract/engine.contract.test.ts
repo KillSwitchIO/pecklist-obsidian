@@ -185,6 +185,52 @@ run('against a real server', () => {
 		expect(b.id).toBe(a.id);
 	});
 
+	it('maps a start alone, a due date alone, and both as an all-day span', async () => {
+		vault.write('Dates.md', ['- [ ] Start only #pecklist 🛫 2026-11-14', '- [ ] Due only #pecklist 📅 2026-11-30', '- [ ] Trip #pecklist 🛫 2026-11-14 📅 2026-11-17'].join('\n'));
+		const report = await engine().sync();
+		expect(report.errors).toEqual([]);
+		const start = await client.task(idIn('Dates.md', 0));
+		expect(start.schedule).toMatchObject({ start: '2026-11-14', end: null, allDay: true });
+		expect(start.due).toBeNull();
+		const due = await client.task(idIn('Dates.md', 1));
+		expect(due.schedule).toBeNull();
+		expect(due.due?.at).toBe('2026-11-30');
+		const trip = await client.task(idIn('Dates.md', 2));
+		expect(trip.schedule).toMatchObject({ start: '2026-11-14', end: '2026-11-17', allDay: true });
+		expect(trip.due?.at).toBe('2026-11-17');
+		// Moving the due date moves the span; taking it off ends it.
+		vault.write('Dates.md', vault.text('Dates.md').replace('📅 2026-11-17', '📅 2026-11-19'));
+		await engine().sync();
+		expect((await client.task(trip.id)).schedule).toMatchObject({ start: '2026-11-14', end: '2026-11-19', allDay: true });
+		vault.write('Dates.md', vault.text('Dates.md').replace(' 📅 2026-11-19', ''));
+		await engine().sync();
+		const ended = await client.task(trip.id);
+		expect(ended.schedule).toMatchObject({ start: '2026-11-14', end: null });
+		expect(ended.due).toBeNull();
+	});
+
+	it('the task manager lists, re-links, adds and unlinks without trashing anything', async () => {
+		const other = await client.createTask({ id: ulid(), title: 'Only in PeckList', listId, tags: ['phone'], due: { at: '2026-11-21' } });
+		const another = await client.createTask({ id: ulid(), title: 'Add me to a note', listId });
+		expect((await engine().openTasks()).map((t) => t.id)).toEqual(expect.arrayContaining([other.id, another.id]));
+
+		vault.write('Manage.md', '- [ ] To be re-linked #pecklist');
+		await engine().sync();
+		const oldId = idIn('Manage.md');
+		expect(await engine().relinkLine('Manage.md', 0, vault.text('Manage.md'), other.id)).toBe(true);
+		expect(vault.text('Manage.md')).toBe(`- [ ] Only in PeckList %%[pecklist:: ${other.id}]%% #pecklist #phone 📅 2026-11-21`);
+		expect(await engine().addToNote('Manage.md', another.id)).toBe(true);
+		const report = await engine().sync();
+		expect(report.errors).toEqual([]);
+		expect(report.trashed).toBe(0);
+		expect((await client.task(oldId)).deletedAt).toBeNull();
+
+		const linked = vault.text('Manage.md').split('\n')[0] ?? '';
+		expect(await engine().unlinkLine('Manage.md', 0, linked)).toBe(true);
+		expect((await engine().sync()).trashed).toBe(0);
+		expect((await client.task(other.id)).deletedAt).toBeNull();
+	});
+
 	(cookie ? it : it.skip)('signs in with a code approved in the browser, and signs out', async () => {
 		const anonymous = new PeckListClient(url, null, http, { retries: 0 });
 		const started = await anonymous.startSignIn('Obsidian contract test');

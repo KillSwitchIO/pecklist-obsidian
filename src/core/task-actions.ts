@@ -2,7 +2,7 @@
 // are tested without Obsidian.
 
 import { isPeckListTag } from './lists';
-import { parseLine, renderLine, statusOf, withReplacedTag, withStatus } from './line';
+import { parseLine, renderLine, statusOf, tagsOf, withAddedTags, withReplacedTag, withStatus, withoutTags } from './line';
 
 /**
  * The line(s) that close a task as done or won't do. A repeating task goes through the Tasks
@@ -37,4 +37,22 @@ export function moveTaskLine(text: string, listTag: string): string | null {
 	const line = parseLine(text);
 	if (!line) return null;
 	return renderLine(withReplacedTag(line, isPeckListTag, listTag));
+}
+
+/**
+ * Adds and removes tags (without `#`, compared ignoring case). PeckList tags are never touched
+ * here: the list is changed with moveTaskLine.
+ */
+export function editTagsLine(text: string, add: readonly string[], remove: readonly string[]): string | null {
+	const line = parseLine(text);
+	if (!line) return null;
+	const gone = new Set(remove.map((t) => t.toLowerCase()));
+	let next = withoutTags(line, (t) => !isPeckListTag(t) && gone.has(t.toLowerCase()));
+	const have = new Set(tagsOf(next).map((t) => t.toLowerCase()));
+	next = withAddedTags(
+		next,
+		add.filter((t, i) => t && !isPeckListTag(t) && !have.has(t.toLowerCase()) && add.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i),
+	);
+	const out = renderLine(next);
+	return out === text ? null : out;
 }

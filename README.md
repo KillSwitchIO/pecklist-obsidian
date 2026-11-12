@@ -79,6 +79,18 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 - **Suggestions:** typing `#pec` on a task line suggests your PeckList lists. On a line that syncs, typing another tag suggests tags from your vault and from PeckList together. Everywhere else Obsidian's own tag suggestions show as usual.
 - **Tag marks:** on lines that sync, list tags get a small bird and the tags sent to PeckList get a dotted underline, in Live Preview and in reading view. They use your theme's tag color. Turn them off with **Mark PeckList tags** in the settings.
 
+## Task manager
+
+**Open task manager** (the bird in the ribbon, the command palette, or the plugin settings) lists every PeckList task in one window:
+
+- **Every tagged line** with its list, dates, tags and note, and its state: synced, waiting to sync, left out, or needing attention (an error from the last sync, a copied line, a line with no text, a linked line that's gone from your notes).
+- **Tasks only in PeckList**, which you can add to the end of a note, complete, move or tag there.
+- **The sync status:** when it last synced, and anything that didn't.
+
+Filter by state or list, or search. From a row's menu (or right-click): go to the line, open it in PeckList, complete or reopen it, move it to another list, edit its tags, link it to another PeckList task, unlink it (the task stays in PeckList), or leave it out of syncing. Select several rows to move, tag, complete or leave them out together.
+
+Changes to a line are made in the note, and only if the line still reads the same, so undo in the note brings it back. Unlinking or leaving out a line never trashes its task.
+
 ## How both ways works
 
 - **Edits:** only the fields that changed are sent, so a title edit in Obsidian and a date change on your phone both survive. If the same field changed on both sides, the newer change wins.
@@ -92,7 +104,7 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 
 - **Server address**, **Account** (Sign in with browser, Sign out) and **API key** (kept in secret storage on the device).
 - **Default list:** where lines tagged `#pecklist` alone go.
-- **Review what syncs**, **Folders left out**, **Notes left out** and **Tags not sent**.
+- **Task manager**, **Review what syncs**, **Folders left out**, **Notes left out** and **Tags not sent**.
 - **Tag for tasks from this vault:** every task made from the vault gets this tag in PeckList (`obsidian/<vault name>` by default). It's never written into notes. Changing it, or emptying it for none, updates the tasks already in PeckList.
 - **Link back to the note** and **Mark PeckList tags**.
 - **Sync on a timer** and **Start over on this device**.
@@ -100,6 +112,7 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 ## Commands
 
 - **Sync now**
+- **Open task manager**
 - **Review what syncs**
 - **Sign in with browser**
 

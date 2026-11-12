@@ -1,8 +1,8 @@
 import type { EditorView } from '@codemirror/view';
 import { MarkdownView, Notice, Platform, Plugin, TFile, debounce } from 'obsidian';
 import { ApiError, PeckListClient, normalizeServerUrl } from './api/client';
-import type { ApiList, ApiMe } from './api/types';
-import { isPeckListTag } from './core/lists';
+import type { ApiList, ApiMe, ApiTask } from './api/types';
+import { ROOT_TAG, isPeckListTag, listKey, listPartOf, nameFromListPart } from './core/lists';
 import { ObsidianVault, obsidianHttp } from './obsidian/adapters';
 import { markerDecoration } from './obsidian/marker-decoration';
 import { ReadingMarks } from './obsidian/reading-marks';
@@ -12,6 +12,9 @@ import { type TaskMenuHooks, showTaskMenu } from './ui/task-menu';
 import { DEFAULT_SETTINGS, type PeckListSettings, effectiveVaultTag } from './settings';
 import { SetupError, SyncEngine, type SyncReport, type SyncState, emptyState } from './sync/engine';
 import { DeletionsModal } from './ui/deletions-modal';
+import { TaskManagerModal } from './ui/manager-modal';
+import { type OverviewRow, buildOverview } from './sync/overview';
+import { scanNote } from './sync/scan';
 import { ReviewModal, type ReviewChoice } from './ui/review-modal';
 import { PeckListSettingTab } from './ui/settings-tab';
 import { SignInModal } from './ui/signin-modal';
@@ -20,8 +23,17 @@ const STATE_KEY = 'pecklist-sync-state';
 const CATALOG_KEY = 'pecklist-catalog';
 const TASKS_PLUGIN = 'obsidian-tasks-plugin';
 
+/** The last sync on this device, for the task manager's status line. */
+export interface LastSync {
+	at: number | null;
+	report: SyncReport | null;
+	error: string | null;
+}
+
 export default class PeckListPlugin extends Plugin {
 	settings: PeckListSettings = { ...DEFAULT_SETTINGS };
+	lastSync: LastSync = { at: null, report: null, error: null };
+	private readonly syncListeners = new Set<() => void>();
 	private account: ApiMe | null = null;
 	private statusEl: HTMLElement | null = null;
 	private running = false;
@@ -43,6 +55,8 @@ export default class PeckListPlugin extends Plugin {
 		this.addCommand({ id: 'sync-now', name: 'Sync now', callback: () => void this.sync('manual') });
 		this.addCommand({ id: 'review', name: 'Review what syncs', callback: () => void this.openReview(false) });
 		this.addCommand({ id: 'sign-in', name: 'Sign in with browser', callback: () => this.openSignIn() });
+		this.addCommand({ id: 'task-manager', name: 'Open task manager', callback: () => this.openManager() });
+		this.addRibbonIcon('bird', 'PeckList tasks', () => this.openManager());
 		this.registerEditorExtension(
 			markerDecoration({
 				open: (id) => this.openTask(id),
@@ -438,6 +452,8 @@ export default class PeckListPlugin extends Plugin {
 	}
 
 	private afterSync(report: SyncReport, manual: boolean, client: PeckListClient, state: SyncState): void {
+		this.lastSync = { at: Date.now(), report, error: null };
+		this.notifySynced();
 		const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 		if (report.errors.length > 0) {
 			this.setStatus(`${report.errors.length} not synced (${time})`);
@@ -476,7 +492,92 @@ export default class PeckListPlugin extends Plugin {
 		else if (e instanceof ApiError) message = e.message;
 		else message = `could not reach the server (${e instanceof Error ? e.message : String(e)}).`;
 		this.setStatus('not synced');
+		this.lastSync = { at: Date.now(), report: null, error: message };
+		this.notifySynced();
 		if (manual || !(e instanceof ApiError && e.status === 429)) new Notice(`PeckList: ${message}`, 8000);
+	}
+
+	// --- The task manager ---
+
+	openManager(): void {
+		new TaskManagerModal(this.app, this).open();
+	}
+
+	/** Calls `listener` after every sync (or failed sync) until the returned function is called. */
+	onSynced(listener: () => void): () => void {
+		this.syncListeners.add(listener);
+		return () => this.syncListeners.delete(listener);
+	}
+
+	private notifySynced(): void {
+		for (const listener of this.syncListeners) listener();
+	}
+
+	isSignedIn(): boolean {
+		return !!this.client();
+	}
+
+	/** Runs `work` with a ready engine. Shows the problem and answers null when it can't start. */
+	async withEngine<T>(work: (engine: SyncEngine, client: PeckListClient) => Promise<T>): Promise<T | null> {
+		try {
+			const ready = await this.prepare(true);
+			if (!ready) return null;
+			return await work(this.engine(ready.client, ready.state), ready.client);
+		} catch (e) {
+			this.showError(e, true);
+			return null;
+		}
+	}
+
+	/** The task manager's rows: every PeckList line, links whose line is gone, and (optionally) tasks only in PeckList. */
+	async overview(withRemote: boolean): Promise<{ rows: OverviewRow[]; lists: ApiList[]; remote: 'loaded' | 'skipped' | 'failed' }> {
+		const state = this.loadState();
+		const lines = await this.lines.all();
+		const seen = new Set(lines.map((l) => l.path));
+		for (const snap of Object.values(state.snaps)) {
+			if (seen.has(snap.path)) continue;
+			seen.add(snap.path);
+			const file = this.app.vault.getFileByPath(snap.path);
+			if (file) lines.push(...scanNote(snap.path, await this.app.vault.cachedRead(file)));
+		}
+		let lists: ApiList[] = [];
+		let remoteTasks: ApiTask[] | null = null;
+		let remote: 'loaded' | 'skipped' | 'failed' = 'skipped';
+		const client = this.client();
+		if (client) {
+			try {
+				lists = (await client.lists()).filter((l) => !l.deletedAt);
+				if (withRemote) {
+					remoteTasks = await this.engine(client, state).openTasks();
+					remote = 'loaded';
+				}
+			} catch {
+				remote = withRemote ? 'failed' : 'skipped';
+			}
+		}
+		const catalog = this.catalog();
+		const chosen = lists.find((l) => l.id === this.settings.defaultListId) ?? lists.find((l) => l.isInbox);
+		const defaultName = chosen?.name ?? catalog.defaultListName ?? 'Default list';
+		const rows = buildOverview({
+			lines,
+			snaps: state.snaps,
+			errors: this.lastSync.report?.errors ?? [],
+			remoteTasks,
+			exclusions: { folders: this.settings.excludedFolders, notes: this.settings.excludedNotes },
+			ignoredTags: [...(this.settings.ignoredTags ?? []), ...(this.vaultTag() ? [this.vaultTag() as string] : [])],
+			listNameForTag: (tag) => {
+				const part = tag && tag !== ROOT_TAG ? listPartOf(tag) : null;
+				if (!part) return defaultName;
+				return lists.find((l) => listKey(l.name) === listKey(part))?.name ?? nameFromListPart(part);
+			},
+			listNameForId: (id) => (id === null ? defaultName : (lists.find((l) => l.id === id)?.name ?? (id === chosen?.id ? defaultName : 'Unknown list'))),
+		});
+		return { rows, lists, remote };
+	}
+
+	/** Opens a linked task in PeckList. */
+	openInPeckList(id: string): void {
+		this.openTask(id);
 	}
 
 	async openReview(firstSync: boolean): Promise<void> {

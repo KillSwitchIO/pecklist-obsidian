@@ -90,3 +90,17 @@ export interface CliCollected {
 	token: string;
 	key: { id: string; name: string; scopes: string[] };
 }
+
+/** Filters for GET /api/v1/tasks. Status defaults to open on the server. */
+export interface TaskFilter {
+	status?: 'open' | 'done' | 'wontdo' | 'all';
+	listId?: string;
+	tag?: string;
+	limit?: number;
+	cursor?: string | null;
+}
+
+export interface ApiTaskPage {
+	items: ApiTask[];
+	next: string | null;
+}
