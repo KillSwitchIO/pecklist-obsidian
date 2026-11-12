@@ -290,7 +290,12 @@ export class ReviewModal extends Modal {
 		if (unlinked > 0)
 			items.createEl('li', { text: `${unlinked} linked ${unlinked === 1 ? 'line stops' : 'lines stop'} syncing. ${unlinked === 1 ? 'Its task stays' : 'Their tasks stay'} in PeckList.` });
 		if (closed > 0) items.createEl('li', { text: `${closed} done ${closed === 1 ? 'line is' : 'lines are'} not sent.` });
-		items.createEl('li', { text: `Lines tagged #pecklist alone go to ${this.preview.defaultListName ?? 'your inbox'}.` });
+		if (this.preview.defaultListName) items.createEl('li', { text: `Lines tagged #pecklist alone go to ${this.preview.defaultListName}.` });
+		else
+			items.createEl('li', {
+				cls: 'mod-warning',
+				text: 'Lines tagged #pecklist alone have nowhere to go yet: open PeckList in your browser once (that makes your inbox), or choose a default list in the settings.',
+			});
 		items.createEl('li', { text: 'After this, changes sync both ways: titles, dates, priority, tags, repeats and done.' });
 	}
 

@@ -2,9 +2,18 @@
 
 Sync task lines in your notes with your own [PeckList](https://gitlab.com/killswitch10/pecklist) server, both ways. Write a task in the [Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) plugin's format, tag it `#pecklist`, and it shows up in PeckList. Change it on your phone and the line in your note follows.
 
-Works on Obsidian desktop and mobile. Needs the community **Tasks** plugin and a PeckList server (0.10 or later).
+Works on Obsidian desktop and mobile (1.13 or later). Needs the community **Tasks** plugin and a PeckList server (0.10 or later).
 
 The full guide, with every setting, is at [pecklist.com/obsidian](https://pecklist.com/obsidian/).
+
+![A note with tasks synced to PeckList: a bird marks each linked line and each list tag, and synced tags are underlined](docs/screenshots/editor-light.png)
+
+| | |
+|---|---|
+| ![Right-click a bird: Open in PeckList, Complete, Won't do, Move to list, Delete task](docs/screenshots/task-menu.png) | ![Typing #pec on a task line suggests PeckList lists](docs/screenshots/suggest-lists.png) |
+| Right-click the bird for the task menu | Suggestions for PeckList lists and tags |
+| ![The review before the first sync, with a summary and every tagged line](docs/screenshots/review.png) | ![The plugin's settings](docs/screenshots/settings.png) |
+| The review before the first sync | Settings |
 
 ## Network use and accounts
 
@@ -14,6 +23,8 @@ This plugin talks to **one server: the PeckList server whose address you enter i
 - It sends the task lines you tag (title, dates, priority, tags, repeat, done), and the list each goes to. If **Link back to the note** is on (the default), a new task's notes get an `obsidian://` link holding your vault's name and the note's path.
 - It reads tasks back from the server to update those lines.
 - Untagged lines, the rest of your notes, and notes in folders you leave out are never read for sending.
+- **Vault files:** to find tagged lines, the plugin lists the Markdown notes in your vault and reads the ones whose tags include a PeckList tag (from Obsidian's own tag index). The tag suggestions list the tags already used in your vault the same way. None of this leaves your device except the tagged lines described above.
+- **Clipboard:** the sign-in window's **Copy code** button puts its one-time code on your clipboard, so you can paste it in the browser. The plugin never reads the clipboard.
 
 ## Getting started
 
@@ -107,6 +118,8 @@ npm test           # unit tests, with a fake server and vault
 PECKLIST_URL=http://localhost:18181 PECKLIST_TOKEN=pl_... npm run test:contract
 ```
 
+The screenshots in `docs/screenshots/` are 2x captures of a demo vault synced to a throwaway local PeckList server.
+
 To try it in Obsidian, copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/pecklist/`. Use a test vault.
 
 The plugin uses only PeckList's public Task API (`/api/v1/`), which only ever gains fields, so an older plugin keeps working with a newer server.
@@ -118,7 +131,7 @@ The plugin uses only PeckList's public Task API (`/api/v1/`), which only ever ga
 
 This project started from the [Obsidian sample plugin](https://github.com/obsidianmd/obsidian-sample-plugin) (0-BSD) at commit `07ceb81`, keeping its build setup.
 
-The project lives on [GitLab](https://gitlab.com/killswitch10/pecklist-obsidian). Issues and merge requests go there. [GitHub](https://github.com/KillSwitchIO/pecklist-obsidian) is a read-only mirror, where releases for Obsidian are built: push a tag matching `manifest.json` (plain `x.y.z`, after `npm version`) and the mirror's release workflow publishes `main.js`, `manifest.json` and `styles.css`.
+The project lives on [GitLab](https://gitlab.com/killswitch10/pecklist-obsidian), where merge requests go. Issues are welcome on GitLab or GitHub. [GitHub](https://github.com/KillSwitchIO/pecklist-obsidian) is a read-only mirror, where releases for Obsidian are built: push a tag matching `manifest.json` (plain `x.y.z`, after `npm version`) and the mirror's release workflow publishes `main.js`, `manifest.json` and `styles.css`.
 
 ## License
 

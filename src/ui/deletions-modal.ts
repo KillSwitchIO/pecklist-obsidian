@@ -26,7 +26,7 @@ export class DeletionsModal extends Modal {
 			.addButton((b) =>
 				b
 					.setButtonText('Trash in PeckList')
-					.setWarning()
+					.setDestructive()
 					.onClick(async () => {
 						await this.onChoice('trash');
 						this.close();

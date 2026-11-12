@@ -2,10 +2,11 @@
 // task menu has that a note line can carry. Every action edits the line, so the next sync sends
 // it like any other edit; undo in the note brings the line back.
 
-import { type App, FuzzySuggestModal, Menu, moment } from 'obsidian';
+import { type App, FuzzySuggestModal, Menu } from 'obsidian';
 import { ROOT_TAG, tagForList } from '../core/lists';
 import { parseLine, statusOf } from '../core/line';
 import { closeTaskLines, moveTaskLine, reopenTaskLine } from '../core/task-actions';
+import { localDate } from '../sync/values';
 import type { Catalog } from './tag-suggest';
 
 /** The task's line in the editor: its text now, and a way to replace (null: delete) it. */
@@ -24,7 +25,7 @@ export interface TaskMenuHooks {
 export function showTaskMenu(app: App, event: MouseEvent, id: string, handle: TaskLineHandle, hooks: TaskMenuHooks): void {
 	const line = parseLine(handle.text);
 	const status = line ? statusOf(line) : 'open';
-	const today = moment().format('YYYY-MM-DD');
+	const today = localDate(null);
 	const apply = (next: string | null): void => {
 		if (next !== null && next !== handle.text) handle.replace(next);
 	};

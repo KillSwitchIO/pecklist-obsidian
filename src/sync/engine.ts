@@ -150,6 +150,9 @@ export class SetupError extends Error {
 	}
 }
 
+export const NO_INBOX =
+	'Your PeckList account has no inbox yet. Open PeckList in your browser once (that makes the inbox), or choose a default list in the plugin settings.';
+
 function emptyReport(): SyncReport {
 	return { created: 0, sent: 0, received: 0, completed: 0, reopened: 0, trashed: 0, unlinked: 0, skippedClosed: 0, held: [], errors: [] };
 }
@@ -215,8 +218,10 @@ export class SyncEngine {
 	private defaultList(): ApiList {
 		const chosen = this.options.defaultListId ? this.lists.find((l) => l.id === this.options.defaultListId) : undefined;
 		const list = chosen ?? this.lists.find((l) => l.isInbox);
-		if (!list) throw new SetupError('Choose a default list in the PeckList settings.');
-		return list;
+		if (list) return list;
+		if (this.options.defaultListId) throw new SetupError('The default list is gone. Choose another one in the plugin settings.');
+		// PeckList makes the inbox the first time the app is opened, so a new account has none.
+		throw new SetupError(NO_INBOX);
 	}
 
 	private listByKey(key: string): ApiList | undefined {

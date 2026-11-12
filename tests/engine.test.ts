@@ -480,3 +480,12 @@ describe('preview', () => {
 		expect(vault.text('Home.md')).toBe('- [ ] Mow #pecklist 📅 2026-11-15');
 	});
 });
+
+describe('a new account', () => {
+	it('says how to get an inbox when there is none and no default list is chosen', async () => {
+		server.lists = server.lists.filter((l) => !l.isInbox);
+		vault.write('Home.md', '- [ ] Mow #pecklist');
+		await expect(sync()).rejects.toThrow(/no inbox yet/u);
+		await expect(sync({ defaultListId: 'L-GONE' })).rejects.toThrow(/default list is gone/u);
+	});
+});

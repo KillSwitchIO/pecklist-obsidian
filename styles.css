@@ -1,5 +1,9 @@
 /* PeckList: the review before the first sync, and the sign-in code. */
 
+.pecklist-review-summary .mod-warning {
+	color: var(--text-warning);
+}
+
 .pecklist-review-summary ul {
 	margin: 0 0 var(--size-4-2);
 	padding-inline-start: var(--size-4-5);
@@ -127,11 +131,9 @@
 	mask: var(--pecklist-bird) center / contain no-repeat;
 }
 
+/* A border rather than text-decoration, which Obsidian 1.11 only partly supports. */
 .pecklist-mark-tags .pecklist-sent-tag {
-	text-decoration-line: underline;
-	text-decoration-style: dotted;
-	text-decoration-color: color-mix(in srgb, currentColor 60%, transparent);
-	text-underline-offset: 0.2em;
+	border-bottom: 1px dotted currentColor;
 }
 
 body {
