@@ -3,7 +3,7 @@
 Versions follow [Semantic Versioning](https://semver.org/). A release is a plain `x.y.z` tag that
 matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidian.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-11)
 
 The first release.
 
