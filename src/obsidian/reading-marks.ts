@@ -49,8 +49,14 @@ export class ReadingMarks {
 		if (!drawn.trim()) return;
 		const found = findDrawnLine(await this.lines.lines(path), drawn);
 		if (!found) return;
-		this.markTags(Array.from(span.querySelectorAll('a.tag')), found.text);
-		if ((found.id || found.off) && !span.querySelector('.pecklist-marker')) span.append(this.marker(found, path));
+		const tags = Array.from(span.querySelectorAll('a.tag'));
+		this.markTags(tags, found.text);
+		if ((found.id || found.off) && !span.querySelector('.pecklist-marker')) {
+			const marker = this.marker(found, path);
+			// The Tasks plugin draws the dates and priority after this span, so its end is where the
+			// fields start.
+			if (!placeBeforeTrailingTags(marker, tags, found)) span.append(marker);
+		}
 	}
 
 	/** A section of a note in reading view. */
@@ -87,9 +93,12 @@ export class ReadingMarks {
 		const found = (await this.lines.lines(path)).find((l) => l.lineNo === lineNo && l.text === text);
 		if (!found || (!found.id && !found.off)) return;
 		if (item.querySelector(':scope > .pecklist-marker') || item.classList.contains('plugin-tasks-list-item')) return;
+		const marker = this.marker(found, path);
+		const tags = Array.from(item.querySelectorAll('a.tag')).filter((a) => a.closest('li') === item);
+		if (placeBeforeTrailingTags(marker, tags, found)) return;
+		if (placeBeforeText(marker, item, found)) return;
 		// Before any nested list, so it sits at the end of the item's own text.
 		const nested = Array.from(item.children).find((c) => c.tagName === 'UL' || c.tagName === 'OL');
-		const marker = this.marker(found, path);
 		if (nested) item.insertBefore(marker, nested);
 		else item.append(marker);
 	}
@@ -123,4 +132,46 @@ export class ReadingMarks {
 			menu: (event) => this.actions.menu(id, event, path, handle),
 		});
 	}
+}
+
+/**
+ * The bird goes where the hidden id is in the line, as in Live Preview: after the text and its
+ * inline tags, before the trailing tags. Tags the Tasks plugin hides (its global filter) are
+ * skipped. False when the line has no trailing tag that was drawn.
+ */
+function placeBeforeTrailingTags(marker: HTMLElement, drawnTags: Element[], found: ScannedLine): boolean {
+	const inline = (name: string): number =>
+		[...found.line.description.matchAll(/(^|\s)#([\p{L}\p{N}_/-]+)/gu)].filter((m) => (m[2] ?? '').toLowerCase() === name).length;
+	for (const token of found.line.tokens) {
+		if (token.kind !== 'tag') continue;
+		const name = token.value.toLowerCase();
+		const drawn = drawnTags.filter((a) => tagName(a).toLowerCase() === name);
+		// The same tag inline and trailing: skip the inline ones.
+		const target = drawn[inline(name)] ?? drawn[drawn.length - 1];
+		if (target?.parentNode) {
+			target.parentNode.insertBefore(marker, target);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Reading view drawn by Obsidian alone: a line with fields and no trailing tag. The bird goes
+ * before the first field's text (a date or priority emoji), split out of its text node.
+ */
+function placeBeforeText(marker: HTMLElement, item: HTMLElement, found: ScannedLine): boolean {
+	const first = found.line.tokens[0];
+	if (!first) return false;
+	const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		const text = node as Text;
+		if (text.parentElement?.closest('li') !== item) continue;
+		const at = text.data.indexOf(first.raw);
+		if (at < 0) continue;
+		const rest = text.splitText(at);
+		rest.parentNode?.insertBefore(marker, rest);
+		return true;
+	}
+	return false;
 }

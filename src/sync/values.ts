@@ -50,6 +50,8 @@ export interface Snapshot {
 	remote: RemoteValues;
 	/** Whether the vault tag was given to the task (once; taken off in PeckList, it stays off). */
 	vaultTagged?: boolean;
+	/** The line as written after the last sync, so a deleted line can be put back as it was. */
+	text?: string;
 }
 
 export function localValues(line: TaskLine, ignoredTags: ReadonlySet<string>): LocalValues {

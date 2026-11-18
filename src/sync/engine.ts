@@ -173,6 +173,13 @@ function isFatal(e: unknown): boolean {
 
 class LineError extends Error {}
 
+/** A note with one more line at its end, in the note's own line endings. */
+function appendLine(content: string, line: string): string {
+	const eol = content.includes('\r\n') ? '\r\n' : '\n';
+	if (content === '') return line + eol;
+	return content.endsWith('\n') ? content + line + eol : content + eol + line + eol;
+}
+
 export class SyncEngine {
 	private lists: ApiList[] = [];
 	private readonly ignored: Set<string>;
@@ -401,15 +408,24 @@ export class SyncEngine {
 	/** Adds a task made in PeckList to the end of a note, linked. */
 	async addToNote(path: string, taskId: string): Promise<boolean> {
 		const { text, task } = await this.lineFor(taskId);
-		const ok = await this.vault.edit(path, (content) => {
-			const eol = content.includes('\r\n') ? '\r\n' : '\n';
-			if (content === '') return text + eol;
-			return content.endsWith('\n') ? content + text + eol : content + eol + text + eol;
-		});
+		const ok = await this.vault.edit(path, (content) => appendLine(content, text));
 		if (!ok) return false;
 		this.state.snaps[taskId] = this.snapshot(path, parseLine(text) as TaskLine, task, this.hasVaultTag(task));
 		this.options.save?.(this.state);
 		return true;
+	}
+
+	/**
+	 * Puts a linked line that was deleted back at the end of its note, as it was written at the
+	 * last sync (so ⏳ stays ⏳, and anything else the line had stays too). Links synced by an
+	 * older build don't have the text: those get a line made from the task.
+	 */
+	async restoreLine(id: string): Promise<boolean> {
+		const snap = this.state.snaps[id];
+		if (!snap) return false;
+		if (!snap.text || !snap.text.includes(`pecklist:: ${id}`)) return this.addToNote(snap.path, id);
+		const text = snap.text.trim();
+		return this.vault.edit(snap.path, (content) => appendLine(content, text));
 	}
 
 	/** Forgets links whose lines are gone, without trashing their tasks. */
@@ -659,7 +675,7 @@ export class SyncEngine {
 	}
 
 	private snapshot(path: string, line: TaskLine, task: ApiTask, vaultTagged: boolean): Snapshot {
-		return { path, local: localValues(line, this.ignored), remote: this.remote(task), vaultTagged };
+		return { path, local: localValues(line, this.ignored), remote: this.remote(task), vaultTagged, text: renderLine(line) };
 	}
 
 	/** The server's view of a task, without the vault tag (which lives only in PeckList). */
@@ -745,6 +761,7 @@ export class SyncEngine {
 			local: localValues(next, this.ignored),
 			remote: current ? this.remote(current) : remoteNow,
 			vaultTagged,
+			text: renderLine(next),
 		};
 	}
 

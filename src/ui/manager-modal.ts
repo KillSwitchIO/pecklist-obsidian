@@ -369,7 +369,7 @@ export class TaskManagerModal extends Modal {
 			const id = row.id as string;
 			item('Open in PeckList', 'external-link', () => this.plugin.openInPeckList(id));
 			if (row.path && this.app.vault.getFileByPath(row.path)) {
-				item('Add it back to its note', 'file-plus', () => void this.engineRun(row.path, (e) => e.addToNote(row.path as string, id)));
+				item('Add it back to its note', 'file-plus', () => void this.engineRun(row.path, (e) => e.restoreLine(id)));
 			}
 			item('Forget the link (the task stays in PeckList)', 'unlink', () => void this.engineRun(null, async (e) => (await e.forgetLinks([id]), true)));
 			item("Move the task to PeckList's trash", 'trash-2', () => void this.remoteRun(async (client) => (await client.deleteTask(id), true)), true);

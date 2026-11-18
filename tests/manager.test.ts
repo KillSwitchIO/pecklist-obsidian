@@ -83,6 +83,20 @@ describe('task manager actions', () => {
 		expect(server.tasks.get('T-NEW')?.tags).toContain('obsidian/Home');
 	});
 
+	it('putting a deleted line back keeps it as it was written, ⏳ and all', async () => {
+		vault.write('Home.md', '# Home\n- [ ] Rake #pecklist #yard ⏳ 2026-11-19 ➕ 2026-11-01');
+		await engine().sync();
+		const written = lineOf('Home.md', 1);
+		const id = idOf(written);
+		vault.write('Home.md', '# Home\n');
+		expect(await engine().restoreLine(id)).toBe(true);
+		expect(vault.text('Home.md')).toBe(`# Home\n${written}\n`);
+		const report = await engine().sync();
+		expect(report.trashed).toBe(0);
+		expect(report.sent).toBe(0);
+		expect(lineOf('Home.md', 1)).toContain('⏳ 2026-11-19');
+	});
+
 	it('splitting a copied line makes it a task of its own', async () => {
 		vault.write('Home.md', '- [ ] Mow #pecklist');
 		await engine().sync();
