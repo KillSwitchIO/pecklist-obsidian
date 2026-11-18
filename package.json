@@ -1,6 +1,6 @@
 {
 	"name": "pecklist-obsidian",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Sync tagged Tasks lines in Obsidian with a PeckList server, both ways.",
 	"main": "main.js",
 	"type": "module",

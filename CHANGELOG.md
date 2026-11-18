@@ -3,7 +3,10 @@
 Versions follow [Semantic Versioning](https://semver.org/). A release is a plain `x.y.z` tag that
 matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidian.
 
-## Unreleased
+## 0.2.0 (2026-11-17)
+
+A task manager window, start and due dates that map to PeckList's schedule, and the bird back in
+Tasks queries. Works with PeckList 0.10 or later and Obsidian 1.13 or later, like 0.1.1.
 
 - **Task manager:** one window with every PeckList task: tagged lines with their sync state,
   links whose line is gone, and tasks only in PeckList. Filter, search, and from a row: go to the
@@ -12,7 +15,8 @@ matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidi
   completed or left out at once. Open it from the ribbon, the command palette or the settings.
 - **Fixed: no bird in Tasks queries.** Query results (and tasks the Tasks plugin draws in reading
   view) show the bird on linked tasks, with the same click and task menu as in the editor, and
-  their PeckList tags are marked again.
+  their PeckList tags are marked again. The bird sits in the same place everywhere: after the
+  task's text, before its tags.
 - **Dates:** 🛫 start sets the task's start date in PeckList (⏳ scheduled still does, on a line
   without 🛫). 📅 due always sets the due date. A start and a due date on different days make the
   task span those days, all day. Tasks synced before get their span once.
