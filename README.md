@@ -54,12 +54,13 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 | `#pecklist`, `#pecklist/List` | The list |
 | Other tags (`#yard`, `#home/garden`) | Tags (new ones are made) |
 | ⏫ or 🔺 / 🔼 / 🔽 or ⏬ | High / medium / low priority |
+| 🛫 start date (or ⏳ scheduled, on a line without 🛫) | Start date |
 | 📅 due date | Due date |
-| ⏳ scheduled date | Date (start) |
+| 🛫 and 📅 on different days | The task spans those days, all day (and keeps the due date) |
 | 🔁 every ... | Repeat |
 | `[x]` with ✅ date / `[-]` with ❌ date | Done / won't do |
 
-- **Not synced:** 🛫 start and ➕ created stay in the note only. Tags in **Tags not sent** (by default the Tasks plugin's global filter, such as `#task`) stay in the note only.
+- **Not synced:** ➕ created stays in the note only, and so does ⏳ on a line that also has 🛫. Tags in **Tags not sent** (by default the Tasks plugin's global filter, such as `#task`) stay in the note only.
 - **Times:** the Tasks plugin's dates have no time of day. A time set in PeckList stays on the server when the date moves in the note.
 - **Repeats** in these forms are translated both ways:
   - every day, week, month or year;
@@ -74,9 +75,21 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 
 ## In the editor
 
-- **The bird:** in Live Preview the hidden id shows as a small bird. Click it to open the task in PeckList. Right-click it for the task menu: **Open in PeckList**, **Complete**, **Won't do** (or **Reopen** on a closed task), **Move to list...** and **Delete task**. Each one edits the line, so undo in the note brings it back, and the change syncs right away. A repeating task is completed through the Tasks plugin, the same as ticking its box. **Delete task** removes the line and moves the task to PeckList's trash.
+- **The bird:** in Live Preview, reading view and Tasks query results, a linked line shows a small bird. Click it to open the task in PeckList. Right-click it for the task menu: **Open in PeckList**, **Complete**, **Won't do** (or **Reopen** on a closed task), **Move to list...** and **Delete task**. Each one edits the line, so undo in the note brings it back, and the change syncs right away. A repeating task is completed through the Tasks plugin, the same as ticking its box. **Delete task** removes the line and moves the task to PeckList's trash.
 - **Suggestions:** typing `#pec` on a task line suggests your PeckList lists. On a line that syncs, typing another tag suggests tags from your vault and from PeckList together. Everywhere else Obsidian's own tag suggestions show as usual.
 - **Tag marks:** on lines that sync, list tags get a small bird and the tags sent to PeckList get a dotted underline, in Live Preview and in reading view. They use your theme's tag color. Turn them off with **Mark PeckList tags** in the settings.
+
+## Task manager
+
+**Open task manager** (the bird in the ribbon, the command palette, or the plugin settings) lists every PeckList task in one window:
+
+- **Every tagged line** with its list, dates, tags and note, and its state: synced, waiting to sync, left out, or needing attention (an error from the last sync, a copied line, a line with no text, a linked line that's gone from your notes).
+- **Tasks only in PeckList**, which you can add to the end of a note, complete, move or tag there.
+- **The sync status:** when it last synced, and anything that didn't.
+
+Filter by state or list, or search. From a row's menu (or right-click): go to the line, open it in PeckList, complete or reopen it, move it to another list, edit its tags, link it to another PeckList task, unlink it (the task stays in PeckList), or leave it out of syncing. Select several rows to move, tag, complete or leave them out together.
+
+Changes to a line are made in the note, and only if the line still reads the same, so undo in the note brings it back. Unlinking or leaving out a line never trashes its task.
 
 ## How both ways works
 
@@ -91,7 +104,7 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 
 - **Server address**, **Account** (Sign in with browser, Sign out) and **API key** (kept in secret storage on the device).
 - **Default list:** where lines tagged `#pecklist` alone go.
-- **Review what syncs**, **Folders left out**, **Notes left out** and **Tags not sent**.
+- **Task manager**, **Review what syncs**, **Folders left out**, **Notes left out** and **Tags not sent**.
 - **Tag for tasks from this vault:** every task made from the vault gets this tag in PeckList (`obsidian/<vault name>` by default). It's never written into notes. Changing it, or emptying it for none, updates the tasks already in PeckList.
 - **Link back to the note** and **Mark PeckList tags**.
 - **Sync on a timer** and **Start over on this device**.
@@ -99,6 +112,7 @@ Once a line is linked, the plugin adds a hidden id to it, such as `%%[pecklist::
 ## Commands
 
 - **Sync now**
+- **Open task manager**
 - **Review what syncs**
 - **Sign in with browser**
 

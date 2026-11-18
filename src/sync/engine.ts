@@ -6,7 +6,9 @@ import type { ApiList, ApiTask, TaskInput } from '../api/types';
 import {
 	type TaskLine,
 	fieldOf,
+	parseLine,
 	renderLine,
+	tagsOf as tagsOfLine,
 	statusOf,
 	titleOf,
 	withAddedTags,
@@ -34,6 +36,8 @@ import {
 	obsidianTag,
 	remoteChanged,
 	remoteValues,
+	scheduleFor,
+	spanEnd,
 	tagForRemote,
 	withDatePart,
 } from './values';
@@ -54,7 +58,7 @@ export interface VaultPort {
 
 export type Api = Pick<
 	PeckListClient,
-	'lists' | 'createList' | 'task' | 'createTask' | 'updateTask' | 'complete' | 'reopen' | 'deleteTask' | 'changes'
+	'lists' | 'createList' | 'task' | 'tasks' | 'createTask' | 'updateTask' | 'complete' | 'reopen' | 'deleteTask' | 'changes'
 >;
 
 export interface SyncState {
@@ -168,6 +172,13 @@ function isFatal(e: unknown): boolean {
 }
 
 class LineError extends Error {}
+
+/** A note with one more line at its end, in the note's own line endings. */
+function appendLine(content: string, line: string): string {
+	const eol = content.includes('\r\n') ? '\r\n' : '\n';
+	if (content === '') return line + eol;
+	return content.endsWith('\n') ? content + line + eol : content + eol + line + eol;
+}
 
 export class SyncEngine {
 	private lists: ApiList[] = [];
@@ -300,6 +311,127 @@ export class SyncEngine {
 			if (found.off === off) return null;
 			return replaceLine(content, lineNo, text, renderLine(withMarker(found.line, off ? { kind: 'off' } : null)));
 		});
+	}
+
+	// --- The task manager ---
+	//
+	// These change a line and the link together, so the next sync sees what was meant: unlinking
+	// or leaving out a linked line never trashes its task, and a re-linked or added line starts
+	// with a snapshot, so the task isn't pushed back over itself.
+
+	/** Open tasks in PeckList, page by page, up to `max`. */
+	async openTasks(max = 5000): Promise<ApiTask[]> {
+		const out: ApiTask[] = [];
+		let cursor: string | null = null;
+		for (let page = 0; page < 100 && out.length < max; page++) {
+			const result = await this.api.tasks({ status: 'open', limit: 500, cursor });
+			out.push(...result.items.filter((t) => !t.deletedAt));
+			cursor = result.next;
+			if (!cursor) break;
+		}
+		return out;
+	}
+
+	private forget(id: string | null): void {
+		if (!id) return;
+		delete this.state.snaps[id];
+		this.state.refetch = this.state.refetch.filter((r) => r !== id);
+	}
+
+	private async rewrite(path: string, lineNo: number, text: string, change: (s: ScannedLine) => TaskLine | null): Promise<ScannedLine | null> {
+		const found = scanNote(path, text)[0];
+		if (!found) return null;
+		const next = change({ ...found, path, lineNo });
+		if (!next) return null;
+		const ok = await this.vault.edit(path, (content) => replaceLine(content, lineNo, text, renderLine(next)));
+		return ok ? { ...found, path, lineNo, line: next, text: renderLine(next) } : null;
+	}
+
+	/** Takes the link and the PeckList tag off a line. The task stays in PeckList. */
+	async unlinkLine(path: string, lineNo: number, text: string): Promise<boolean> {
+		const found = scanNote(path, text)[0];
+		const done = await this.rewrite(path, lineNo, text, (s) => this.unlinkedLine(s.line));
+		if (done) {
+			this.forget(found?.id ?? null);
+			this.options.save?.(this.state);
+		}
+		return done !== null;
+	}
+
+	/** Marks a line so it never syncs. A linked line's task stays in PeckList. */
+	async leaveOutLine(path: string, lineNo: number, text: string): Promise<boolean> {
+		const found = scanNote(path, text)[0];
+		const done = await this.rewrite(path, lineNo, text, (s) => (s.off ? null : withMarker(s.line, { kind: 'off' })));
+		if (done) {
+			this.forget(found?.id ?? null);
+			this.options.save?.(this.state);
+		}
+		return done !== null;
+	}
+
+	/** Takes a line's link off so the next sync makes it a task of its own (a copied line). */
+	async splitLine(path: string, lineNo: number, text: string): Promise<boolean> {
+		return (await this.rewrite(path, lineNo, text, (s) => (s.id ? withMarker(s.line, null) : null))) !== null;
+	}
+
+	/**
+	 * Links a line to another, existing task. The line takes the task's title, list, tags, dates,
+	 * priority, repeat and status. The task the line had before stays in PeckList.
+	 */
+	async relinkLine(path: string, lineNo: number, text: string, taskId: string): Promise<boolean> {
+		await this.loadLists();
+		const task = await this.api.task(taskId);
+		if (task.deletedAt) throw new SetupError('That task was deleted in PeckList.');
+		const before = scanNote(path, text)[0];
+		const done = await this.rewrite(path, lineNo, text, (s) => withMarker(this.applyPull(this.withListTag(s.line), FIELDS, task, null), { kind: 'id', id: taskId }));
+		if (!done) return false;
+		if (before?.id !== taskId) this.forget(before?.id ?? null);
+		this.state.snaps[taskId] = this.snapshot(path, done.line, task, this.hasVaultTag(task));
+		this.options.save?.(this.state);
+		return true;
+	}
+
+	/** A new task line for a task, as it would be written into a note. */
+	async lineFor(taskId: string): Promise<{ text: string; task: ApiTask }> {
+		await this.loadLists();
+		const task = await this.api.task(taskId);
+		const base = this.withListTag(parseLine('- [ ] x') as TaskLine);
+		const line = withMarker(this.applyPull(base, FIELDS, task, null), { kind: 'id', id: taskId });
+		return { text: renderLine(line), task };
+	}
+
+	/** A line needs a PeckList tag to sync; the default list's stands in until the list is pulled. */
+	private withListTag(line: TaskLine): TaskLine {
+		return tagsOfLine(line).some(isPeckListTag) ? line : withAddedTags(line, [ROOT_TAG]);
+	}
+
+	/** Adds a task made in PeckList to the end of a note, linked. */
+	async addToNote(path: string, taskId: string): Promise<boolean> {
+		const { text, task } = await this.lineFor(taskId);
+		const ok = await this.vault.edit(path, (content) => appendLine(content, text));
+		if (!ok) return false;
+		this.state.snaps[taskId] = this.snapshot(path, parseLine(text) as TaskLine, task, this.hasVaultTag(task));
+		this.options.save?.(this.state);
+		return true;
+	}
+
+	/**
+	 * Puts a linked line that was deleted back at the end of its note, as it was written at the
+	 * last sync (so ⏳ stays ⏳, and anything else the line had stays too). Links synced by an
+	 * older build don't have the text: those get a line made from the task.
+	 */
+	async restoreLine(id: string): Promise<boolean> {
+		const snap = this.state.snaps[id];
+		if (!snap) return false;
+		if (!snap.text || !snap.text.includes(`pecklist:: ${id}`)) return this.addToNote(snap.path, id);
+		const text = snap.text.trim();
+		return this.vault.edit(snap.path, (content) => appendLine(content, text));
+	}
+
+	/** Forgets links whose lines are gone, without trashing their tasks. */
+	async forgetLinks(ids: string[]): Promise<void> {
+		for (const id of ids) this.forget(id);
+		this.options.save?.(this.state);
 	}
 
 	// --- The sync run ---
@@ -543,7 +675,7 @@ export class SyncEngine {
 	}
 
 	private snapshot(path: string, line: TaskLine, task: ApiTask, vaultTagged: boolean): Snapshot {
-		return { path, local: localValues(line, this.ignored), remote: this.remote(task), vaultTagged };
+		return { path, local: localValues(line, this.ignored), remote: this.remote(task), vaultTagged, text: renderLine(line) };
 	}
 
 	/** The server's view of a task, without the vault tag (which lives only in PeckList). */
@@ -571,6 +703,13 @@ export class SyncEngine {
 			if (agrees(f, local, remoteNow, this.listIdFor)) continue;
 			if (lc && rc) (localTime > remoteTime ? push : pull).push(f);
 			else (lc ? push : pull).push(f);
+		}
+		// A start and a later due date span those days. Tasks synced before spans existed (or
+		// linked by this device for the first time) get theirs once; after that the span follows the
+		// note's dates, and an end changed in PeckList stays.
+		const wantEnd = spanEnd(local);
+		if (wantEnd && wantEnd !== (remoteNow.end ?? null) && (!snap || snap.remote.end === undefined) && !push.includes('scheduled') && !pull.includes('scheduled') && !pull.includes('due')) {
+			push.push('scheduled');
 		}
 
 		let current = task;
@@ -622,6 +761,7 @@ export class SyncEngine {
 			local: localValues(next, this.ignored),
 			remote: current ? this.remote(current) : remoteNow,
 			vaultTagged,
+			text: renderLine(next),
 		};
 	}
 
@@ -677,19 +817,13 @@ export class SyncEngine {
 					input.due = local.due
 						? { at: withDatePart(local.due, task.due?.at), ...(task.due ? { allDay: task.due.allDay, timeZone: task.due.timeZone } : {}) }
 						: null;
+					// The due date also ends a span from the start date. Only when both sides agree on
+					// the start: a start moved in PeckList is pulled into the note instead.
+					if (local.scheduled && task.schedule?.start.slice(0, 10) === local.scheduled) input.schedule = scheduleFor(local, task.schedule);
 					break;
-				case 'scheduled': {
-					if (!local.scheduled) {
-						input.schedule = null;
-						break;
-					}
-					const start = withDatePart(local.scheduled, task.schedule?.start);
-					const end = task.schedule?.end && task.schedule.end >= start ? task.schedule.end : null;
-					input.schedule = task.schedule
-						? { start, end, allDay: task.schedule.allDay, timeZone: task.schedule.timeZone }
-						: { start };
+				case 'scheduled':
+					input.schedule = scheduleFor(local, task.schedule);
 					break;
-				}
 				case 'recurrence': {
 					if (local.recurrence === null) input.recurrence = null;
 					else {
@@ -747,9 +881,14 @@ export class SyncEngine {
 				case 'due':
 					next = withField(next, 'due', task.due ? task.due.at.slice(0, 10) : null);
 					break;
-				case 'scheduled':
-					next = withField(next, 'scheduled', task.schedule ? task.schedule.start.slice(0, 10) : null);
+				case 'scheduled': {
+					// The start goes where the line keeps it: 🛫, or ⏳ on a line that only has ⏳.
+					// Cleared, both go, or ⏳ would become the start next time.
+					const start = task.schedule ? task.schedule.start.slice(0, 10) : null;
+					if (start === null) next = withField(withField(next, 'start', null), 'scheduled', null);
+					else next = withField(next, fieldOf(next, 'start') === null && fieldOf(next, 'scheduled') !== null ? 'scheduled' : 'start', start);
 					break;
+				}
 				case 'recurrence': {
 					if (!task.recurrence) next = withField(next, 'recurrence', null);
 					else {
@@ -851,7 +990,8 @@ export class SyncEngine {
 		const input: TaskInput = { id, title: local.title, listId: await this.ensureListId(s.peckListTag) };
 		if (local.priority > 0) input.priority = local.priority;
 		if (local.due) input.due = { at: local.due };
-		if (local.scheduled) input.schedule = { start: local.scheduled };
+		const schedule = scheduleFor(local, null);
+		if (schedule) input.schedule = schedule;
 		const tags = this.withVaultTag(local.tags, null);
 		if (tags.length > 0) input.tags = tags;
 		const rule = local.recurrence ? tasksToRrule(local.recurrence) : null;

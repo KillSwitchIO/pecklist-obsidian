@@ -3,6 +3,20 @@
 Versions follow [Semantic Versioning](https://semver.org/). A release is a plain `x.y.z` tag that
 matches `manifest.json`; the GitHub mirror builds it and publishes it for Obsidian.
 
+## Unreleased
+
+- **Task manager:** one window with every PeckList task: tagged lines with their sync state,
+  links whose line is gone, and tasks only in PeckList. Filter, search, and from a row: go to the
+  line, open in PeckList, complete or reopen, move to another list, edit tags, link to another
+  task, unlink, leave out, add a PeckList task to a note. Several rows can be moved, tagged,
+  completed or left out at once. Open it from the ribbon, the command palette or the settings.
+- **Fixed: no bird in Tasks queries.** Query results (and tasks the Tasks plugin draws in reading
+  view) show the bird on linked tasks, with the same click and task menu as in the editor, and
+  their PeckList tags are marked again.
+- **Dates:** 🛫 start sets the task's start date in PeckList (⏳ scheduled still does, on a line
+  without 🛫). 📅 due always sets the due date. A start and a due date on different days make the
+  task span those days, all day. Tasks synced before get their span once.
+
 ## 0.1.1 (2026-11-12)
 
 Fixes from Obsidian's automated plugin review, and a first-sync problem on new accounts.

@@ -140,3 +140,190 @@ body {
 	/* Lucide's bird, the same icon as the link marker. */
 	--pecklist-bird: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 7h.01'/><path d='M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20'/><path d='m20 7 2 .5-2 .5'/><path d='M10 18v3'/><path d='M14 17.75V21'/><path d='M7 18a6 6 0 0 0 3.84-10.61'/></svg>");
 }
+
+/* The task manager. */
+.pecklist-manager.modal {
+	width: min(880px, 96vw);
+	height: min(84vh, 900px);
+}
+
+.pecklist-manager .modal-content {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	min-height: 0;
+	flex: 1;
+}
+
+.pecklist-manager.is-busy .pecklist-mgr-list {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+.pecklist-mgr-head {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-3);
+}
+
+.pecklist-mgr-status {
+	display: flex;
+	gap: var(--size-4-2);
+	flex: 1;
+	min-width: 0;
+}
+
+.pecklist-mgr-status-icon {
+	color: var(--text-muted);
+	padding-top: 2px;
+}
+
+.pecklist-mgr-status.is-error .pecklist-mgr-status-icon {
+	color: var(--text-warning);
+}
+
+.pecklist-mgr-status-sub {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.pecklist-mgr-head-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+/* One fixed-height row: the toolbar, or the bulk actions while rows are selected. */
+.pecklist-mgr-bar {
+	min-height: var(--input-height);
+}
+
+.pecklist-mgr-toolbar,
+.pecklist-mgr-bulk {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.pecklist-mgr-search {
+	flex: 1;
+	min-width: 12em;
+}
+
+.pecklist-mgr-bulk-count {
+	color: var(--text-muted);
+	margin-inline-end: var(--size-4-2);
+}
+
+.pecklist-mgr-bulk-clear {
+	margin-inline-start: auto;
+}
+
+.pecklist-mgr-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.pecklist-mgr-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-1);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pecklist-mgr-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.pecklist-mgr-pick {
+	margin-top: 3px;
+}
+
+.pecklist-mgr-state {
+	color: var(--text-faint);
+	padding-top: 2px;
+}
+
+.pecklist-mgr-state svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.pecklist-mgr-row[data-state="attention"] .pecklist-mgr-state {
+	color: var(--text-warning);
+}
+
+.pecklist-mgr-row[data-state="new"] .pecklist-mgr-state,
+.pecklist-mgr-row[data-state="changed"] .pecklist-mgr-state,
+.pecklist-mgr-row[data-state="unknown"] .pecklist-mgr-state {
+	color: var(--text-accent);
+}
+
+.pecklist-mgr-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.pecklist-mgr-title {
+	cursor: pointer;
+	overflow-wrap: anywhere;
+}
+
+.pecklist-mgr-title:hover {
+	color: var(--text-accent);
+}
+
+.pecklist-mgr-row.is-closed .pecklist-mgr-title {
+	color: var(--text-faint);
+}
+
+.pecklist-mgr-meta {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	overflow-wrap: anywhere;
+}
+
+.pecklist-mgr-reason {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pecklist-mgr-row[data-state="attention"] .pecklist-mgr-reason {
+	color: var(--text-warning);
+}
+
+.pecklist-mgr-empty,
+.pecklist-mgr-foot {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	padding: var(--size-4-2) 0;
+}
+
+.pecklist-mgr-foot:empty {
+	display: none;
+}
+
+.pecklist-tags-input {
+	width: 100%;
+}
+
+.pecklist-mgr-note {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin-inline-start: var(--size-4-3);
+}
+
+.pecklist-mgr-note-icon svg {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.pecklist-mgr-toolbar select {
+	flex: 1 1 9em;
+	max-width: 16em;
+}

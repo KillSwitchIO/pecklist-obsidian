@@ -125,6 +125,12 @@ export class FakeServer {
 				this.lists.push(list);
 				return structuredClone(list);
 			},
+			tasks: async (filter: { status?: string } = {}) => {
+				this.calls.push({ method: 'tasks' });
+				const status = filter.status ?? 'open';
+				const items = [...this.tasks.values()].filter((t) => !t.deletedAt && (status === 'all' || t.status === status)).map((t) => structuredClone(t));
+				return { items, next: null };
+			},
 			task: async (id: string) => {
 				this.calls.push({ method: 'task', id });
 				return structuredClone(this.get(id));

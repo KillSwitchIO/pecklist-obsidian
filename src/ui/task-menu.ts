@@ -74,12 +74,12 @@ export function showTaskMenu(app: App, event: MouseEvent, id: string, handle: Ta
 	menu.showAtMouseEvent(event);
 }
 
-interface ListChoice {
+export interface ListChoice {
 	name: string;
 	tag: string;
 }
 
-class MoveToListModal extends FuzzySuggestModal<ListChoice> {
+export class MoveToListModal extends FuzzySuggestModal<ListChoice> {
 	constructor(
 		app: App,
 		private readonly catalog: Catalog,

@@ -167,6 +167,17 @@ export class PeckListSettingTab extends PluginSettingTab {
 				heading: 'What syncs',
 				rows: [
 					{
+						name: 'Task manager',
+						desc: 'Every PeckList task in one window: what syncs, what needs attention, and tasks only in PeckList. Also in the command palette and the ribbon.',
+						aliases: ['tasks', 'manage'],
+						render: (s) => {
+							s.addButton((b) => {
+								b.setButtonText('Open');
+								b.onClick(() => this.plugin.openManager());
+							});
+						},
+					},
+					{
 						name: 'Review what syncs',
 						desc: 'See every tagged line and leave out folders, notes or lines.',
 						render: (s) => {

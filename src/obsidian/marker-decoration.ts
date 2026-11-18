@@ -61,6 +61,35 @@ function lineHandle(view: EditorView, el: HTMLElement, changed: (deleted: boolea
 	};
 }
 
+/**
+ * The bird for a linked line (or the crossed-out eye for a line left out): click opens the task,
+ * right-click opens the task menu. Used in Live Preview, reading view and Tasks queries.
+ */
+export function createMarker(id: string, on: { open(): void; menu(event: MouseEvent): void }): HTMLElement {
+	const off = id === 'off';
+	const el = createSpan({ cls: off ? 'pecklist-marker is-off' : 'pecklist-marker' });
+	setIcon(el, off ? 'eye-off' : 'bird');
+	setTooltip(el, off ? 'Left out of PeckList sync' : 'Linked to PeckList: select to open the task, right-click for more');
+	if (!off) {
+		// mousedown, not click: in the editor a click would first move the cursor onto the marker.
+		el.addEventListener('mousedown', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (e.button === 0) on.open();
+		});
+		el.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+		});
+		el.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			on.menu(e);
+		});
+	}
+	return el;
+}
+
 class MarkerWidget extends WidgetType {
 	constructor(
 		private readonly id: string,
@@ -74,23 +103,13 @@ class MarkerWidget extends WidgetType {
 	}
 
 	toDOM(view: EditorView): HTMLElement {
-		const off = this.id === 'off';
-		const el = createSpan({ cls: off ? 'pecklist-marker is-off' : 'pecklist-marker' });
-		setIcon(el, off ? 'eye-off' : 'bird');
-		setTooltip(el, off ? 'Left out of PeckList sync' : 'Linked to PeckList: select to open the task');
-		if (!off) {
-			el.addEventListener('mousedown', (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				if (e.button === 0) this.actions.open(this.id);
-			});
-			el.addEventListener('contextmenu', (e) => {
-				e.preventDefault();
-				e.stopPropagation();
+		const el: HTMLElement = createMarker(this.id, {
+			open: () => this.actions.open(this.id),
+			menu: (e) => {
 				const handle = lineHandle(view, el, (deleted) => this.actions.changed(view, deleted));
 				if (handle) this.actions.menu(this.id, e, handle);
-			});
-		}
+			},
+		});
 		return el;
 	}
 

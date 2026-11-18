@@ -6,7 +6,7 @@
 // spell differently (tag case, a tag with a space, a repeat with no Tasks text) never looks like
 // a change and never loops.
 
-import type { ApiTask } from '../api/types';
+import type { ApiTask, TaskInput } from '../api/types';
 import { isPeckListTag, tagKey } from '../core/lists';
 import { type TaskLine, type Status, fieldOf, priorityOf, statusOf, tagsOf, titleOf } from '../core/line';
 import { normalizeRrule, tasksToRrule } from '../core/recurrence';
@@ -22,6 +22,7 @@ export interface LocalValues {
 	tags: string[];
 	priority: number;
 	due: string | null;
+	/** The start date: 🛫, or ⏳ when the line has no 🛫. (Named for the field it once was.) */
 	scheduled: string | null;
 	/** The 🔁 text, lowercased, or null. */
 	recurrence: string | null;
@@ -34,7 +35,10 @@ export interface RemoteValues {
 	tags: string[];
 	priority: number;
 	due: string | null;
+	/** The schedule's start date. */
 	scheduled: string | null;
+	/** The schedule's end date, or null. Missing in snapshots saved before 0.2. */
+	end?: string | null;
 	/** Canonical RRULE, or null. */
 	recurrence: string | null;
 	status: Status;
@@ -46,6 +50,8 @@ export interface Snapshot {
 	remote: RemoteValues;
 	/** Whether the vault tag was given to the task (once; taken off in PeckList, it stays off). */
 	vaultTagged?: boolean;
+	/** The line as written after the last sync, so a deleted line can be put back as it was. */
+	text?: string;
 }
 
 export function localValues(line: TaskLine, ignoredTags: ReadonlySet<string>): LocalValues {
@@ -66,7 +72,7 @@ export function localValues(line: TaskLine, ignoredTags: ReadonlySet<string>): L
 		tags,
 		priority: priorityOf(line),
 		due: fieldOf(line, 'due'),
-		scheduled: fieldOf(line, 'scheduled'),
+		scheduled: fieldOf(line, 'start') ?? fieldOf(line, 'scheduled'),
 		recurrence: rec ? rec.trim().toLowerCase().replace(/\s+/gu, ' ') : null,
 		status: statusOf(line),
 	};
@@ -80,6 +86,7 @@ export function remoteValues(task: ApiTask): RemoteValues {
 		priority: task.priority,
 		due: task.due ? task.due.at.slice(0, 10) : null,
 		scheduled: task.schedule ? task.schedule.start.slice(0, 10) : null,
+		end: task.schedule?.end ? task.schedule.end.slice(0, 10) : null,
 		recurrence: normalizeRrule(task.recurrence),
 		status: task.status,
 	};
@@ -150,6 +157,37 @@ export function obsidianTag(name: string): string | null {
 		.replace(/^-+|-+$/gu, '');
 	// A tag needs at least one non-digit.
 	return t && /[^\d/]/u.test(t) ? t : null;
+}
+
+/**
+ * The last day of the schedule a line asks for: its due date, when it has a start and a due date
+ * on a later day (the task then spans those days, all day). Otherwise null.
+ */
+export function spanEnd(local: Pick<LocalValues, 'scheduled' | 'due'>): string | null {
+	return local.scheduled && local.due && local.due > local.scheduled ? local.due : null;
+}
+
+type ScheduleInput = NonNullable<TaskInput['schedule']>;
+
+/**
+ * The schedule to send for a line's start and due dates.
+ * - A start and a due date on a later day: the task spans them, all day.
+ * - A start alone (or a due date on the same day or earlier): the start date. A time of day set
+ *   in PeckList stays, and so does a timed slot's length.
+ * - No start: no schedule.
+ */
+export function scheduleFor(local: Pick<LocalValues, 'scheduled' | 'due'>, current: ApiTask['schedule'] | null | undefined): ScheduleInput | null {
+	if (!local.scheduled) return null;
+	const last = spanEnd(local);
+	const zone = current?.timeZone ? { timeZone: current.timeZone } : {};
+	if (last) return { start: local.scheduled, end: last, allDay: true, ...zone };
+	if (!current) return { start: local.scheduled };
+	const start = withDatePart(local.scheduled, current.start);
+	// A timed slot within one day (09:00 to 10:00) moves with the date. Any other end, such as an
+	// all-day span made from the note's dates, ends when the note no longer asks for it.
+	const slot = !current.allDay && !!current.end && current.end.slice(0, 10) === current.start.slice(0, 10);
+	const end = slot && current.end ? withDatePart(local.scheduled, current.end) : null;
+	return { start, end, allDay: start.length === 10, ...zone };
 }
 
 /** A date or local date-time with its date part replaced, keeping a time of day if it had one. */
